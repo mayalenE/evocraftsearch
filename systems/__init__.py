@@ -1,3 +1,3 @@
-from evocraftsearch.systems.minkowski_nn.sparse3D import SparseCA
+from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCA
 
-__all__ = ["SparseCA"]
+__all__ = ["CppnPotentialCA"]
