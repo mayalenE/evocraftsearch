@@ -35,34 +35,3 @@ class SphericPad(nn.Module):
         output = torch.cat([output[:, :, :, -(self.pad_back + self.pad_front):-self.pad_right], output], dim=3)
 
         return output
-
-
-def complex_mult_torch(X, Y):
-    """ Computes the complex multiplication in Pytorch when the tensor last dimension is 2: 0 is the real component and 1 the imaginary one"""
-    assert X.shape[-1] == 2 and Y.shape[-1] == 2, 'Last dimension must be 2'
-    return torch.stack(
-        (X[..., 0] * Y[..., 0] - X[..., 1] * Y[..., 1],
-         X[..., 0] * Y[..., 1] + X[..., 1] * Y[..., 0]),
-        dim=-1)
-
-
-def roll_n(X, axis, n):
-    """ Rolls a tensor with a shift n on the specified axis"""
-    f_idx = tuple(slice(None, None, None) if i != axis else slice(0, n, None)
-                  for i in range(X.dim()))
-    b_idx = tuple(slice(None, None, None) if i != axis else slice(n, None, None)
-                  for i in range(X.dim()))
-    front = X[f_idx]
-    back = X[b_idx]
-    return torch.cat([back, front], axis)
-
-
-def soft_max(x, m, k):
-    return torch.log(torch.exp(k * x) + torch.exp(k * m)) / k
-
-
-def soft_clip(x, min, max, k):
-    a = torch.exp(k * x)
-    b = torch.exp(torch.FloatTensor([k * min])).item()
-    c = torch.exp(torch.FloatTensor([-k * max])).item()
-    return torch.log(1.0 / (a + b) + c) / -k

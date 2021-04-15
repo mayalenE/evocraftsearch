@@ -2553,7 +2553,7 @@
   },
   {
     "namespace": "minecraft",
-    "material": "slime_block",
+    "material": "slime",
     "mode": "block",
     "top_color": [114, 188, 105, 230],
     "darken": true,

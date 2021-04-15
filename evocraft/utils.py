@@ -1,9 +1,12 @@
 import grpc
 from nbt import nbt
+import json
+import torch
 import os
+from collections import OrderedDict
 
-import minecraft_pb2_grpc
-from minecraft_pb2 import *
+from evocraftsearch.evocraft import minecraft_pb2_grpc
+from evocraftsearch.evocraft.minecraft_pb2 import *
 channel = grpc.insecure_channel('localhost:5001') #WORLD ORIGIN: (0,4,0)
 client = minecraft_pb2_grpc.MinecraftServiceStub(channel)
 
@@ -127,3 +130,13 @@ def load_arena(nbt_filepath, arena_bbox=(0,4,0,20,20,20)):
 
     # Draw the loaded blocks
     client.spawnBlocks(Blocks(blocks=blocks))
+
+
+def get_minecraft_color_list(block_list):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'palette.json'), 'rb') as f:
+        json_data = json.load(f)
+    color_dict = OrderedDict.fromkeys(block_list)
+    for block_data in json_data:
+        if block_data["mode"] == "block" and block_data["material"].upper() in block_list:
+            color_dict[block_data["material"].upper()] = torch.tensor(block_data["top_color"]).float() / 255.0
+    return list(color_dict.values())

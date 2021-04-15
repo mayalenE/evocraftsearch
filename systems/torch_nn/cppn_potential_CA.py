@@ -2,8 +2,9 @@ from addict import Dict
 import torch
 import numbers
 from evocraftsearch import System
-from evocraftsearch.utils.torch_utils import SphericPad, roll_n, complex_mult_torch, soft_clip, soft_max
+from evocraftsearch.utils.torch_utils import SphericPad
 from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, MultiBinarySpace
+from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
 from pytorchneat.activations import str_to_activation
 from copy import deepcopy
@@ -11,9 +12,7 @@ import warnings
 import time
 import MinkowskiEngine as ME
 import open3d as o3d
-import matplotlib.pyplot as plt
-cmap = plt.cm.jet
-colorlist = [cmap(i) for i in range(0,cmap.N,20)]
+
 
 def str_to_tuple_key(str_key):
     splitted_key = str_key.split("_")
@@ -66,7 +65,7 @@ class CppnPotentialCAInitializationSpace(DictSpace):
     def default_config():
         default_config = Dict()
         default_config.neat_config = None
-        default_config.cppn_n_passes = 2
+        default_config.cppn_n_passes = 3
         return default_config
 
     def __init__(self,  config={}, **kwargs):
@@ -110,28 +109,29 @@ class CppnPotentialCAUpdateRuleSpace(Space):
     @staticmethod
     def default_config():
         default_config = Dict()
-        default_config.n_blocks = 10
         default_config.neat_config = None
         default_config.cppn_n_passes = 2
         return default_config
 
-    def __init__(self, config={}, **kwargs):
+    def __init__(self, n_blocks, config={}, **kwargs):
         self.config = self.__class__.default_config()
         self.config.update(config)
         self.config.update(kwargs)
 
+        self.n_blocks = n_blocks
+
         self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=0.5, indpb=1.0, dtype=torch.float32)
 
-        n_cross_channels = (self.config.n_blocks - 1) ** 2
+        n_cross_channels = (self.n_blocks - 1) ** 2
         indpb_sample_cross_channels = []
         indpb_mutate_cross_channels = []
-        for c0 in range(1, self.config.n_blocks):
-            for c1 in range(1, self.config.n_blocks):
+        for c0 in range(1, self.n_blocks):
+            for c1 in range(1, self.n_blocks):
                 if c1 == c0: # higher sampling rate and lower mutation rate for channelwise kernels
                     indpb_sample_cross_channels.append(1.0)
                     indpb_mutate_cross_channels.append(0.05)
                 else:
-                    indpb_sample_cross_channels.append(0.4)
+                    indpb_sample_cross_channels.append(0.1)
                     indpb_mutate_cross_channels.append(0.1)
 
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
@@ -149,11 +149,12 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         x['C'] = self.C.sample()
         x['K'] = Dict()
         unrolled_idx = 0
-        for c0 in range(1, self.config.n_blocks):
-            for c1 in range(1, self.config.n_blocks):
-                is_cross_kernel = x['C'][unrolled_idx]
+        for c0 in range(1, self.n_blocks):
+            for c1 in range(1, self.n_blocks):
+                is_cross_kernel = bool(x['C'][unrolled_idx])
                 if is_cross_kernel:
                     x['K'][tuple_to_str_key((c0,c1))] = self.K.sample()
+                unrolled_idx += 1
         return x
 
     def mutate(self, x):
@@ -163,8 +164,8 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         new_x['C'] = self.C.mutate(x['C'])
         new_x['K'] = Dict()
         unrolled_idx = 0
-        for c0 in range(1, self.config.n_blocks):
-            for c1 in range(1, self.config.n_blocks):
+        for c0 in range(1, self.n_blocks):
+            for c1 in range(1, self.n_blocks):
                 is_cross_kernel = new_x['C'][unrolled_idx]
                 if is_cross_kernel:
                     was_cross_kernel = x['C'][unrolled_idx]
@@ -217,7 +218,7 @@ class CppnPotentialCAStep(torch.nn.Module):
             module_cur_K = torch.nn.Module()
             module_cur_K.register_buffer('R', K['R']+2)
             module_cur_K.add_module('pad', SphericPad(K['R']+2))
-            module_cur_K.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(K['cppn_genome'], self.cppn_config))
+            module_cur_K.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(K['cppn_genome'], self.cppn_config, device=self.device))
             module_cur_K.register_parameter('m', torch.nn.Parameter(K['m']))
             module_cur_K.register_parameter('s', torch.nn.Parameter(K['s']))
             self.K.add_module(str_key, module_cur_K)
@@ -257,21 +258,25 @@ class CppnPotentialCA(System, torch.nn.Module):
         default_config.SX = 16
         default_config.SY = 16
         default_config.SZ = 16
-        default_config.n_blocks = 10 # block 0 is always air
+        default_config.block_list = ['AIR', 'CLAY', 'SLIME', 'PISTON', 'STICKY_PISTON', 'REDSTONE_BLOCK'] # block 0 is always air
         default_config.final_step = 10
 
-        default_config.air_potential = 0.5
+        default_config.air_potential = 1.0
         default_config.max_potential = 10.0
         default_config.initialization_cppn.presence_logit = 'gumbel' # 'threshold' or 'gumbel'
         default_config.initialization_cppn.presence_bias = -0.3 # bias for sampling presence (when negative encourages absence)
-        default_config.initialization_cppn.occupation_ratio = 1.0 / 2.0 # the initial state is confined to occupation_ratio of the world grid
+        default_config.initialization_cppn.occupation_ratio = 1.0 / 4.0 # the initial state is confined to occupation_ratio of the world grid
 
         return default_config
 
 
-    def __init__(self, initialization_space=None, update_rule_space=None, intervention_space=None, config={}, device=torch.device('cpu'), **kwargs):
+    def __init__(self, initialization_space=None, update_rule_space=None, intervention_space=None, config={}, device='cpu', **kwargs):
         System.__init__(self, config=config, device=device, **kwargs)
         torch.nn.Module.__init__(self)
+
+        self.n_blocks = len(self.config.block_list)
+        assert self.config.block_list[0] == 'AIR'
+        self.blocks_colorlist = get_minecraft_color_list(self.config.block_list)
 
         self.device = device
 
@@ -282,7 +287,7 @@ class CppnPotentialCA(System, torch.nn.Module):
         if update_rule_space is not None:
             self.update_rule_space = update_rule_space
         else:
-            self.update_rule_space = CppnPotentialCAUpdateRuleSpace()
+            self.update_rule_space = CppnPotentialCAUpdateRuleSpace(self.n_blocks)
         self.intervention_space = intervention_space
         self.run_idx = 0
 
@@ -307,29 +312,26 @@ class CppnPotentialCA(System, torch.nn.Module):
         # first two outputs are given a ReLU activation function and serve as logits (+- presence bias) for presence classification
         if self.config.initialization_cppn.presence_logit == 'gumbel':
             # the other ones are for logits block types so we assign them relu activations
-            for i in range(self.config.n_blocks+1):
+            for i in range(self.n_blocks+1):
                 self.initialization_cppn.output_activations[i] = str_to_activation['relu']
         # v2 hard threshold: n_outputs CPPN = 1 + (n_blocks-1)
         # first output is given an activation that maps to [-1,1] and then we threshold > presence bias for presence classification
         elif self.config.initialization_cppn.presence_logit == 'threshold':
             assert self.initialization_cppn.output_activations[0].__name__.split('_')[:-1] in ['delphineat_sigmoid', 'delphineat_gauss', 'tanh', 'sin']
             # the other ones are for logits block types so we assign them relu activations
-            for i in range (1, self.config.n_blocks):
+            for i in range (1, self.n_blocks):
                 self.initialization_cppn.output_activations[i] = str_to_activation['relu']
         else:
             raise NotImplementedError
 
-
         # push the nn.Module and the available devoce
         self.to(self.device)
-
-        self.generate_init_potential()
 
     def generate_update_rule_kernels(self):
         self.cppn_potential_ca_step.reset_kernels()
 
     def generate_init_potential(self):
-        # TODO: taus as attribute to decrease
+        # TODO: tau as attribute to decrease
 
         # the cppn generated output is confined to a limited space:
         cppn_output_height = int(self.config.SY * self.config.initialization_cppn.occupation_ratio)
@@ -351,17 +353,17 @@ class CppnPotentialCA(System, torch.nn.Module):
         cppn_output_presence = cppn_output_presence.unsqueeze(-1)
 
         # compute block potentials
-        cppn_output_block_potentials = torch.clamp(cppn_output[:, :, :, -(self.config.n_blocks-1):], min=0.0, max=self.config.max_potential)
+        cppn_output_block_potentials = torch.clamp(cppn_output[:, :, :, -(self.n_blocks-1):], min=0.0, max=self.config.max_potential)
 
         # generate the world sparse init potential
-        init_potential = torch.zeros(1, self.config.SY, self.config.SX, self.config.SZ, self.config.n_blocks, dtype=torch.float64)
+        init_potential = torch.zeros(1, self.config.SY, self.config.SX, self.config.SZ, self.n_blocks, dtype=torch.float64)
         init_potential[0, :, :, :, 0] = self.config.air_potential
         offset = int((self.config.SY - cppn_output_height) // 2.0)
         init_potential[0, offset:offset+cppn_output_height, offset:offset+cppn_output_width, offset:offset+cppn_output_depth, 1:] = cppn_output_block_potentials
         self.potential = init_potential.to(self.device)
-        self.state = torch.nn.functional.gumbel_softmax(torch.log(self.potential), tau=0.01, hard=True)
+        sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0 #todo: dont detach?
+        self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1,self.n_blocks) * self.potential, format="BXXXC")
         self.step_idx = 0
-
 
     def update_initialization_parameters(self):
         new_initialization_parameters = Dict()
@@ -392,7 +394,8 @@ class CppnPotentialCA(System, torch.nn.Module):
                 module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
         #self.render()
         self.potential = self.cppn_potential_ca_step(self.potential)
-        self.state = torch.nn.functional.gumbel_softmax(torch.log(self.potential), tau=0.01, hard=True)
+        sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0
+        self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1, self.n_blocks) * self.potential, format="BXXXC")
         self.step_idx += 1
 
         return self.potential
@@ -408,29 +411,15 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.generate_init_potential()
         observations = Dict()
         observations.timepoints = list(range(self.config.final_step))
-        observations.potentials = torch.empty((self.config.final_step, self.config.SX, self.config.SY, self.config.SZ, self.config.n_blocks))
+        observations.potentials = torch.empty((self.config.final_step, self.config.SX, self.config.SY, self.config.SZ, self.n_blocks))
         observations.potentials[0] = self.potential[0]
-        state_coords = []
-        state_feats = []
-        for i in range(self.config.SY):
-            for j in range(self.config.SX):
-                for k in range(self.config.SZ):
-                    block_one_hot = self.state[0, i, j, k]
-                    if block_one_hot.detach().argmax() > 0:
-                        state_coords.append(torch.tensor([0, i, j, k], dtype=torch.float64))
-                        state_feats.append(block_one_hot)
+        sparse_potentials_coords = [self.sparse_potential.C]
+        sparse_potentials_feats = [self.sparse_potential.F]
         for step_idx in range(1, self.config.final_step):
             cur_observation = self.step(None)
             observations.potentials[step_idx] = cur_observation[0]
-            for i in range(self.config.SY):
-                for j in range(self.config.SX):
-                    for k in range(self.config.SZ):
-                        block_one_hot = self.state[0, i, j, k]
-                        if block_one_hot.detach().argmax() > 0:
-                            state_coords.append(torch.tensor([step_idx, i, j, k], dtype=torch.float64))
-                            state_feats.append(block_one_hot)
-        if len(state_coords) > 0:
-            observations.states = ME.SparseTensor(features=torch.stack(state_feats), coordinates=torch.stack(state_coords))
+            sparse_potentials_coords.append(self.sparse_potential.C)
+            sparse_potentials_feats.append(self.sparse_potential.F)
 
         return observations
 
@@ -438,21 +427,22 @@ class CppnPotentialCA(System, torch.nn.Module):
     def render(self, mode="human"):
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery',800,800)
-        cur_state = self.state[0].cpu().detach()
+        pcd = o3d.geometry.PointCloud()
+        cur_potential = self.potential[0].cpu().detach()
         coords = []
         feats = []
         for i in range(self.config.SY):
             for j in range(self.config.SX):
                 for k in range(self.config.SZ):
-                    block_id = cur_state[i,j,k].argmax()
+                    block_id = cur_potential[i, j, k].cpu().detach().argmax()
                     if block_id > 0:
                         coords.append(torch.tensor([i, j, k], dtype=torch.float64))
                         feats.append(block_id.unsqueeze(-1))
         if len(coords) > 0:
-            sparse_state = ME.SparseTensor(torch.stack(feats), torch.stack(coords))
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(sparse_state.C)
-            pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(colorlist[sparse_state.F[i].cpu().detach()][:3]) for i in range(len(sparse_state.F))]))
+            coords = torch.stack(coords)
+            feats = torch.stack(feats)
+            pcd.points = o3d.utility.Vector3dVector(coords)
+            pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(self.blocks_colorlist[feats[i]][:3]) for i in range(len(feats))]))
             voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
             vis.add_geometry(voxel_grid)
         if mode == "human":
@@ -479,7 +469,7 @@ class CppnPotentialCA(System, torch.nn.Module):
                 vis.clear_geometries()
                 if len(cur_frame_C) > 0:
                     pcd.points = o3d.utility.Vector3dVector(cur_frame_C)
-                    pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(colorlist[cur_frame_F[i].argmax()][:3]) for i in range(len(cur_frame_F))]))
+                    pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(self.blocks_colorlist[cur_frame_F[i].argmax()][:3]) for i in range(len(cur_frame_F))]))
                     voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
                     vis.add_geometry(voxel_grid)
                     vis.poll_events()
