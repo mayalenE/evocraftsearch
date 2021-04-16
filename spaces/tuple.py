@@ -21,6 +21,15 @@ class TupleSpace(Space):
     def mutate(self, x):
         return tuple([space.mutate(part) for (space, part) in zip(self.spaces, x)])
 
+    def crossover(self, x1, x2):
+        child_list = [space.crossover(x1,x2) for (space, x1, x2) in zip(self.spaces, x1, x2)]
+        child_1_tuple = tuple()
+        child_2_tuple = tuple()
+        for (child_1, child_2) in child_list:
+            child_1_tuple += (child_1, )
+            child_2_tuple += (child_2, )
+        return child_1_tuple, child_2_tuple
+
     def contains(self, x):
         if isinstance(x, list):
             x = tuple(x)  # Promote list to tuple for contains check

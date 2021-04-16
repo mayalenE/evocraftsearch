@@ -1,6 +1,6 @@
 import torch
 from evocraftsearch.spaces import Space
-
+from copy import deepcopy
 
 class DiscreteSpace(Space):
     r"""A discrete space in :math:`\{ 0, 1, \\dots, n-1 \}`.
@@ -36,6 +36,10 @@ class DiscreteSpace(Space):
             return self.clamp(x)
         else:
             return x
+
+    def crossover(self, x1, x2):
+        # return x1, x2 (as dim=1), overwrite to blend values
+        return deepcopy(x1), deepcopy(x2)
 
     def contains(self, x):
         if isinstance(x, int):

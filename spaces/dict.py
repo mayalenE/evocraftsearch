@@ -50,6 +50,15 @@ class DictSpace(Space):
     def mutate(self, x):
         return Dict([(k, space.mutate(x[k])) for k, space in self.spaces.items()])
 
+    def crossover(self, x1, x2):
+        child_list = [(k, space.crossover(x1[k], x2[k])) for k, space in self.spaces.items()]
+        child_1_dict = Dict()
+        child_2_dict = Dict()
+        for k, (child_1, child_2) in child_list:
+            child_1_dict[k] = child_1
+            child_2_dict[k] = child_2
+        return child_1_dict, child_2_dict
+
     def contains(self, x):
         if not isinstance(x, dict) or len(x) != len(self.spaces):
             return False
