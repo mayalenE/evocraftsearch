@@ -51,6 +51,20 @@ class CPPNSpace(Space):
         new_genome.mutate(self.config.neat_config.genome_config)
         return new_genome
 
+    def crossover(self, genome_1, genome_2):
+        genome_1 = deepcopy(genome_1)
+        genome_2 = deepcopy(genome_2)
+        if genome_1.fitness is None:
+            genome_1.fitness = 0.0
+        if genome_2.fitness is None:
+            genome_2.fitness = 0.0
+        child_1 = self.config.neat_config.genome_type(0)
+        child_1.configure_crossover(genome_1, genome_2, self.config.neat_config.genome_config)
+        child_2 = self.config.neat_config.genome_type(0)
+        child_2.configure_crossover(genome_1, genome_2, self.config.neat_config.genome_config)
+        return child_1, child_2
+
+
     def contains(self, x):
         # TODO from neat config max connections/weights
         return True
@@ -100,7 +114,7 @@ class BiasedMultiBinarySpace(MultiBinarySpace):
         MultiBinarySpace.__init__(self, n=n, indpb=indpb)
 
     def sample(self):
-        return torch.bernoulli(self.indpb_sample)
+        return torch.bernoulli(self.indpb_sample).to(self.dtype)
 
 
 
@@ -175,6 +189,44 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                         new_x['K'][tuple_to_str_key((c0, c1))] = self.K.sample()
                 unrolled_idx += 1
         return new_x
+
+    def crossover(self, x1, x2):
+        # genome: policy_parameters.init_matnucleus_genome pytorchneat.SelfConnectionGenome
+        child_1, child_2 = Dict(), Dict()
+        child_1['T'], child_2['T'] = self.T.crossover(x1['T'], x2['T'])
+        child_1['C'], child_2['C'] = self.C.crossover(x1['C'], x2['C'])
+        child_1['K'], child_2['K'] = Dict(), Dict()
+
+        unrolled_idx = 0
+        for c0 in range(1, self.n_blocks):
+            for c1 in range(1, self.n_blocks):
+                was_x1_cross_kernel = x1['C'][unrolled_idx]
+                was_x2_cross_kernel = x2['C'][unrolled_idx]
+                is_child_1_cross_kernel = child_1['C'][unrolled_idx].bool().item()
+                is_child_2_cross_kernel = child_2['C'][unrolled_idx].bool().item()
+
+                if is_child_1_cross_kernel or is_child_2_cross_kernel:
+                    if was_x1_cross_kernel:
+                        cur_x1_K = x1['K'][tuple_to_str_key((c0, c1))]
+                    else:
+                        cur_x1_K = self.K.sample()
+
+                    if was_x2_cross_kernel:
+                        cur_x2_K = x2['K'][tuple_to_str_key((c0, c1))]
+                    else:
+                        cur_x2_K = self.K.sample()
+
+                    cur_child_1, cur_child_2 = self.K.crossover(cur_x1_K, cur_x2_K)
+
+                    if is_child_1_cross_kernel:
+                        child_1['K'][tuple_to_str_key((c0, c1))] = cur_child_1
+
+                    if is_child_2_cross_kernel:
+                        child_2['K'][tuple_to_str_key((c0, c1))] = cur_child_2
+
+                unrolled_idx += 1
+
+        return child_1, child_2
 
     def contains(self, x):
         return self.T.contains(x['T']) and all(self.K.contains(K) for K in x['K'].values())
@@ -264,7 +316,7 @@ class CppnPotentialCA(System, torch.nn.Module):
         default_config.air_potential = 1.0
         default_config.max_potential = 10.0
         default_config.initialization_cppn.presence_logit = 'gumbel' # 'threshold' or 'gumbel'
-        default_config.initialization_cppn.presence_bias = -0.3 # bias for sampling presence (when negative encourages absence)
+        default_config.initialization_cppn.presence_bias = 1.0  # bias for sampling presence (when negative encourages absence)
         default_config.initialization_cppn.occupation_ratio = 1.0 / 4.0 # the initial state is confined to occupation_ratio of the world grid
 
         return default_config
@@ -334,10 +386,10 @@ class CppnPotentialCA(System, torch.nn.Module):
         # TODO: tau as attribute to decrease
 
         # the cppn generated output is confined to a limited space:
-        cppn_output_height = int(self.config.SY * self.config.initialization_cppn.occupation_ratio)
         cppn_output_width = int(self.config.SX * self.config.initialization_cppn.occupation_ratio)
-        cppn_output_depth = int(self.config.SY * self.config.initialization_cppn.occupation_ratio)
-        cppn_input = pytorchneat.utils.create_image_cppn_input((cppn_output_height, cppn_output_width, cppn_output_depth), is_distance_to_center=True, is_bias=True)
+        cppn_output_height = int(self.config.SY * self.config.initialization_cppn.occupation_ratio)
+        cppn_output_depth = int(self.config.SZ * self.config.initialization_cppn.occupation_ratio)
+        cppn_input = pytorchneat.utils.create_image_cppn_input((cppn_output_width, cppn_output_height, cppn_output_depth), is_distance_to_center=True, is_bias=True)
         cppn_output = self.initialization_cppn.activate(cppn_input, self.initialization_space.config.cppn_n_passes)
 
         # compute presence/absence mask
@@ -353,13 +405,13 @@ class CppnPotentialCA(System, torch.nn.Module):
         cppn_output_presence = cppn_output_presence.unsqueeze(-1)
 
         # compute block potentials
-        cppn_output_block_potentials = torch.clamp(cppn_output[:, :, :, -(self.n_blocks-1):], min=0.0, max=self.config.max_potential)
+        cppn_output_block_potentials = cppn_output_presence * torch.clamp(cppn_output[:, :, :, -(self.n_blocks-1):], min=0.0, max=self.config.max_potential)
 
         # generate the world sparse init potential
-        init_potential = torch.zeros(1, self.config.SY, self.config.SX, self.config.SZ, self.n_blocks, dtype=torch.float64)
+        init_potential = torch.zeros(1, self.config.SX, self.config.SY, self.config.SZ, self.n_blocks, dtype=torch.float64)
         init_potential[0, :, :, :, 0] = self.config.air_potential
-        offset = int((self.config.SY - cppn_output_height) // 2.0)
-        init_potential[0, offset:offset+cppn_output_height, offset:offset+cppn_output_width, offset:offset+cppn_output_depth, 1:] = cppn_output_block_potentials
+        offset = int((self.config.SX - cppn_output_width) // 2.0)
+        init_potential[0, offset:offset+cppn_output_width, offset:offset+cppn_output_height, offset:offset+cppn_output_depth, 1:] = cppn_output_block_potentials
         self.potential = init_potential.to(self.device)
         sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0 #todo: dont detach?
         self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1,self.n_blocks) * self.potential, format="BXXXC")
@@ -376,8 +428,9 @@ class CppnPotentialCA(System, torch.nn.Module):
     def update_update_rule_parameters(self):
         new_update_rule_parameters = deepcopy(self.update_rule_parameters)
         new_update_rule_parameters['T'] = self.cppn_potential_ca_step.T.data
-        new_update_rule_parameters['m'] = self.cppn_potential_ca_step.m.data
-        new_update_rule_parameters['s'] = self.cppn_potential_ca_step.s.data
+        for str_key, module in self.cppn_potential_ca_step.K.named_children():
+            new_update_rule_parameters['K'][str_key]['m'] = module.m.data
+            new_update_rule_parameters['K'][str_key]['s'] = module.s.data
         if not self.update_rule_space.contains(new_update_rule_parameters):
             new_update_rule_parameters = self.update_rule_space.clamp(new_update_rule_parameters)
             warnings.warn('provided parameters are not in the space range and are therefore clamped')
@@ -385,13 +438,14 @@ class CppnPotentialCA(System, torch.nn.Module):
 
     def step(self, intervention_parameters=None):
         # clamp params if was changed outside of allowed bounds with gradient Descent
-        if not self.update_rule_space.T.contains(self.cppn_potential_ca_step.T.data):
-            self.cppn_potential_ca_step.T.data = self.update_rule_space.T.clamp(self.cppn_potential_ca_step.T.data)
-        for str_key, module in self.cppn_potential_ca_step.K.named_children():
-            if not self.update_rule_space.K['m'].contains(module.m.data):
-                module.m.data = self.update_rule_space.K['m'].clamp(module.m.data)
-            if not self.update_rule_space.K['s'].contains(module.s.data):
-                module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
+        with torch.no_grad():
+            if not self.update_rule_space.T.contains(self.cppn_potential_ca_step.T.data.cpu()):
+                self.cppn_potential_ca_step.T.data = self.update_rule_space.T.clamp(self.cppn_potential_ca_step.T.data)
+            for str_key, module in self.cppn_potential_ca_step.K.named_children():
+                if not self.update_rule_space.K['m'].contains(module.m.data.cpu()):
+                    module.m.data = self.update_rule_space.K['m'].clamp(module.m.data)
+                if not self.update_rule_space.K['s'].contains(module.s.data.cpu()):
+                    module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
         #self.render()
         self.potential = self.cppn_potential_ca_step(self.potential)
         sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0
@@ -431,8 +485,8 @@ class CppnPotentialCA(System, torch.nn.Module):
         cur_potential = self.potential[0].cpu().detach()
         coords = []
         feats = []
-        for i in range(self.config.SY):
-            for j in range(self.config.SX):
+        for i in range(self.config.SX):
+            for j in range(self.config.SY):
                 for k in range(self.config.SZ):
                     block_id = cur_potential[i, j, k].cpu().detach().argmax()
                     if block_id > 0:
