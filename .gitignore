@@ -1,5 +1,7 @@
 # custom
 *.idea/
+*/tests/run_*
+*/tests/*.pickle
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
