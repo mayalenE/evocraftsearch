@@ -159,7 +159,7 @@ class IMGEPExplorer(Explorer):
                                                                 )
                     for optim_step_idx in tqdm(range(1, self.config.reach_goal_optimizer.optim_steps)):
 
-                    print(f'Run {run_idx}, optimisation toward goal: ')
+                        print(f'Run {run_idx}, optimisation toward goal: ')
 
                         # run system with IMGEP's policy parameters
                         observations = self.system.run()

@@ -24,11 +24,7 @@ class EAExplorer(Explorer):
         default_config.selection_size = 10
 
         # Opt: Optimizer to reach goal
-        default_config.fitness_optimizer = Dict()
-        default_config.fitness_optimizer.optim_steps = 10
-        default_config.fitness_optimizer.name = "Adam"
-        default_config.fitness_optimizer.initialization_cppn.parameters.lr =  1e-3
-        default_config.fitness_optimizer.cppn_potential_ca_step.K.parameters.lr = 1e-2
+        default_config.fitness_optim_steps = 10
 
         return default_config
 
@@ -42,11 +38,9 @@ class EAExplorer(Explorer):
         creator.create("Individual", list, fitness=creator.FitnessMax)
 
         self.toolbox = base.Toolbox()
-        self.toolbox.register(
-            "individual",
-            self.generate_policy_parameters,
-            #creator.Individual,
-        )
+        self.toolbox.register("individual", self.system.sample_policy_parameters)
+        self.toolbox.register("mate", self.system.crossover_policy_parameters)
+        self.toolbox.register("mutate", self.system.mutate_policy_parameters)
 
         self.toolbox.register(
             "population",
@@ -56,90 +50,37 @@ class EAExplorer(Explorer):
         )
 
         self.toolbox.register("select", tools.selTournament, tournsize=self.config.population_size)
-        self.toolbox.register("mate", self.crossover_policy_parameters)
-        self.toolbox.register("mutate", self.mutate_policy_parameters)
+
         self.toolbox.register("evaluate", self.evaluate_policy_parameters)
 
 
-    def generate_policy_parameters(self):
-        policy = Dict()
-        policy['initialization'] = self.system.initialization_space.sample()
-        policy['update_rule'] = self.system.update_rule_space.sample()
-        policy['fitness'] = 0.0
-        return policy
-
-    def crossover_policy_parameters(self, policy_1, policy_2):
-        child_1_policy, child_2_policy = Dict(), Dict()
-        child_1_policy['initialization'], child_2_policy['initialization'] = self.system.initialization_space.crossover(policy_1['initialization'], policy_2['initialization'])
-        child_1_policy['update_rule'], child_2_policy['update_rule'] = self.system.update_rule_space.crossover(policy_1['update_rule'], policy_2['update_rule'])
-        return child_1_policy, child_2_policy
-
-    def mutate_policy_parameters(self, policy):
-        new_policy = Dict()
-        new_policy['initialization'] = self.system.initialization_space.mutate(policy['initialization'])
-        new_policy['update_rule'] = self.system.update_rule_space.mutate(policy['update_rule'])
-        return new_policy
-
-
-    def evaluate_policy_parameters(self, policy):
-        individual_idx = 0
+    def evaluate_policy_parameters(self, ind_id, ind_policy):
 
         # system rollout with the individual's policy
-        self.system.reset(initialization_parameters=policy['initialization'],
-                          update_rule_parameters=policy['update_rule'])
+        self.system.reset(ind_policy)
 
         # Optimization toward target goal
-        if isinstance(self.system, torch.nn.Module) and self.config.fitness_optimizer.optim_steps > 0:
+        if isinstance(self.system, torch.nn.Module) and self.config.fitness_optim_steps > 0:
 
-            optimizer_class = eval(f'torch.optim.{self.config.fitness_optimizer.name}')
-            self.fitness_optimizer = optimizer_class([{'params': self.system.initialization_cppn.parameters(),
-                                                          **self.config.fitness_optimizer.initialization_cppn.parameters},
-                                                         {'params': self.system.cppn_potential_ca_step.K.parameters(),
-                                                          **self.config.fitness_optimizer.cppn_potential_ca_step.K.parameters}],
-                                                        **self.config.fitness_optimizer.parameters)
-            
-            for optim_step_idx in tqdm(range(1, self.config.fitness_optimizer.optim_steps)):
-
-                # run system with IMGEP's policy parameters
-                observations = self.system.run()
-
-                # compute error between reached_goal and target_goal
-                fitness = self.output_fitness.calc(observations)
-                loss = -fitness
-                print(f'step {optim_step_idx}: fitness={fitness.item():0.2f}')
-
-                # optimisation step
-                self.fitness_optimizer.zero_grad()
-                loss.backward()
-                self.fitness_optimizer.step()
-
-                if optim_step_idx > 5 and abs(old_loss - loss.item()) < 1e-4:
-                    break
-                old_loss = loss.item()
-
-            # gather back the trained parameters
-            self.system.update_initialization_parameters()
-            self.system.update_update_rule_parameters()
-            policy['initialization'] = self.system.initialization_parameters
-            policy['update_rule'] = self.system.update_rule_parameters
-
+            train_losses = self.system.optimize(self.config.fitness_optimizer.optim_steps, lambda obs: - self.output_fitness.calc(obs))
+            ind_policy['initialization'] = self.system.initialization_parameters
+            ind_policy['update_rule'] = self.system.update_rule_parameters
+            fitness = - train_losses[-1]
 
         else:
             with torch.no_grad():
                 observations = self.system.run()
-                fitness = self.output_fitness.calc(observations)
-                optim_step_idx = 0
+                fitness = self.output_fitness.calc(observations).item()
 
-        # save results in the database
-        fitness = fitness.item()
-        if fitness > 2.5:
-            self.system.render()
-        self.db.add_run_data(id=individual_idx,
-                             policy_parameters=policy,
+        # update ind_policy fitness
+        ind_policy["fitness"] = fitness
+
+        # store results in the database
+        self.db.add_run_data(id=ind_id,
+                             policy_parameters=ind_policy,
                              observations=observations,
-                             fitness=fitness,
-                             n_optim_steps=optim_step_idx)
-        return fitness
+                             fitness=fitness)
+        return ind_policy
 
 
     def run(self, n_exploration_runs, continue_existing_run=False):
@@ -184,11 +125,12 @@ class EAExplorer(Explorer):
 
             # evaluate new individuals
             print("evaluate individuals")
-            invalid_inds = [ind for ind in offspring if ind.fitness is None]
-            fitnesses = self.toolbox.map(self.toolbox.evaluate, invalid_inds)
-            for ind, fit in zip(invalid_inds, fitnesses):
-                ind.fitness = fit
-
+            for ind_idx, ind_policy in enumerate(offspring):
+                if ind_policy.fitness is not None:
+                    continue
+                else:
+                    ind_policy = self.toolbox.evaluate(ind_idx, ind_policy)
+                    offspring[ind_idx] = ind_policy
 
             # update population and pass to next generation
             self.population[:] = offspring

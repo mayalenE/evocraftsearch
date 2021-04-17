@@ -41,22 +41,37 @@ def load_target(nbt_filepath):
             cur_block_type = 0
         target[cur_x, cur_y, cur_z] = torch.nn.functional.one_hot(torch.tensor(cur_block_type), len(block_types))
 
-    return target
+    block_list = block_types
+    block_list[air_idx] = block_list[0]
+    block_list[0] = "AIR"
+    return target, block_list
 
 
 class TestEAExplorer(TestCase):
     def test_ea_explorer(self):
 
         # Load Target
-        target = load_target("/home/mayalen/code/08-EvoCraft/structures/Extra_dark_oak.nbt")
+        target, block_list = load_target("/home/mayalen/code/08-EvoCraft/structures/plain_village_house.nbt")
+        pad = 2
+        SX = target.shape[0] + 2 * pad
+        SY = target.shape[1] + 2 * pad
+        SZ = target.shape[2] + 2 * pad
+        n_blocks = target.shape[-1]
+        air_one_hot = torch.nn.functional.one_hot(torch.tensor(0), n_blocks).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        target = torch.cat([target, air_one_hot.repeat(pad, target.shape[1], target.shape[2], 1)], dim=0)
+        target = torch.cat([target, air_one_hot.repeat(target.shape[0], pad, target.shape[2], 1)], dim=1)
+        target = torch.cat([target, air_one_hot.repeat(target.shape[0], target.shape[1], pad, 1)], dim=2)
+        target = torch.cat([air_one_hot.repeat(pad, target.shape[1], target.shape[2], 1), target], dim=0)
+        target = torch.cat([air_one_hot.repeat(target.shape[0], pad, target.shape[2], 1), target], dim=1)
+        target = torch.cat([air_one_hot.repeat(target.shape[0], target.shape[1], pad, 1), target], dim=2)
 
         # Load System
         cppn_potential_ca_config = CppnPotentialCA.default_config()
-        cppn_potential_ca_config.SX = target.shape[0]
-        cppn_potential_ca_config.SY = target.shape[1]
-        cppn_potential_ca_config.SZ = target.shape[2]
-        cppn_potential_ca_config.n_blocks = target.shape[-1]
-        cppn_potential_ca_config.final_step = 10
+        cppn_potential_ca_config.SX = SX
+        cppn_potential_ca_config.SY = SY
+        cppn_potential_ca_config.SZ = SZ
+        cppn_potential_ca_config.block_list = block_list
+        cppn_potential_ca_config.final_step = 20
 
         initialization_space_config = Dict()
         initialization_space_config.neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
@@ -74,7 +89,7 @@ class TestEAExplorer(TestCase):
                                                            neat.DefaultStagnation,
                                                            '/home/mayalen/code/my_packages/evocraftsearch/systems/torch_nn/tests/test_neat_cppn_potential_ca_kernels.cfg'
                                                            )
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(n_blocks=cppn_potential_ca_config.n_blocks, config=update_rule_space_config)
+        update_rule_space = CppnPotentialCAUpdateRuleSpace(n_blocks=len(cppn_potential_ca_config.block_list), config=update_rule_space_config)
 
         system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
@@ -91,12 +106,9 @@ class TestEAExplorer(TestCase):
 
         explorer_config = EAExplorer.default_config()
         explorer_config.population_size = 10
-        explorer_config.selection_size = 5
+        explorer_config.selection_size = 2
         explorer_config.fitness_optimizer = Dict()
-        explorer_config.fitness_optimizer.optim_steps = 20
-        explorer_config.fitness_optimizer.name = "Adam"
-        explorer_config.fitness_optimizer.initialization_cppn.parameters.lr = 1e-2
-        explorer_config.fitness_optimizer.lenia_step.parameters.lr = 1e-3
+        explorer_config.fitness_optimizer.optim_steps = 40
         explorer = EAExplorer(system, exploration_db, output_fitness, config=explorer_config)
 
         # Run Imgep Explorer

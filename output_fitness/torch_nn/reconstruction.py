@@ -27,7 +27,7 @@ class ReconstructionFitness(OutputFitness):
         air_potential = last_potential[0,0,0,0]
         air_one_hot = F.one_hot(torch.tensor(0),n_channels)
 
-        output_presence = F.relu(last_potential - air_potential).sum(-1) #float where presence, 0 elsewhere
+        output_presence = F.relu(last_potential - air_potential).max(-1)[0] #float where presence, 0 elsewhere
         target_presence = F.relu(self.target - air_one_hot).sum(-1) #1 where presence, 0 elsewhere
 
         intersection = (output_presence * target_presence)
@@ -35,11 +35,8 @@ class ReconstructionFitness(OutputFitness):
 
         iou = (union.sum() - intersection.sum()) / (union.sum() + 1e-8)  # We smooth our devision to avoid 0/0
 
-        if intersection.detach().sum() > 0:
-            intersection_mask = intersection.detach().bool()
-            ce = F.cross_entropy(last_potential[intersection_mask].view(-1,n_channels), self.target[intersection_mask].argmax(-1).view(-1))
-        else:
-            ce = 4.0 # penalize empty output
+        ce_apply_mask = target_presence.detach().bool()
+        ce = F.cross_entropy(last_potential[ce_apply_mask].view(-1,n_channels), self.target[ce_apply_mask].argmax(-1).view(-1))
 
         fitness = 4.0 / (self.config.a_CE * ce + self.config.a_IoU * iou)
 
