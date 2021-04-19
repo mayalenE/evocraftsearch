@@ -116,6 +116,15 @@
   },
   {
     "namespace": "minecraft",
+    "material": "planks",
+    "mode": "block",
+    "top_color": [157, 128, 79, 255],
+    "darken": true,
+    "legacy_id": 5,
+    "legacy_meta": 0
+  },
+  {
+    "namespace": "minecraft",
     "material": "oak_planks",
     "mode": "block",
     "top_color": [157, 128, 79, 255],
@@ -311,6 +320,16 @@
     "top_color": [115, 115, 115, 255],
     "darken": true,
     "legacy_id": 16
+  },
+  {
+    "namespace": "minecraft",
+    "material": "log",
+    "mode": "block",
+    "top_color": [184, 148, 95, 255],
+    "side_color": [101, 80, 49, 255],
+    "darken": false,
+    "legacy_id": 17,
+    "legacy_meta": 0
   },
   {
     "namespace": "minecraft",
@@ -931,7 +950,7 @@
   {
     "namespace": "minecraft",
     "material": "stone_slab",
-    "mode": "legacy_slab_block",
+    "mode": "block",
     "top_color": [128, 128, 128, 255],
     "darken": true,
     "legacy_id": [43, 44],
@@ -1192,7 +1211,7 @@
   {
     "namespace": "minecraft",
     "material": "stone_pressure_plate",
-    "mode": "half_block",
+    "mode": "block",
     "top_color": [120, 120, 120, 255],
     "darken": true,
     "legacy_id": 70
@@ -1274,6 +1293,14 @@
     "top_color": [85, 107, 47, 255],
     "darken": true,
     "legacy_id": 81
+  },
+  {
+    "namespace": "minecraft",
+    "material": "stained_hardened_clay",
+    "mode": "block",
+    "top_color": [144, 152, 168, 255],
+    "darken": true,
+    "legacy_id": 82
   },
   {
     "namespace": "minecraft",
@@ -1667,7 +1694,7 @@
   },
   {
     "namespace": "minecraft",
-    "material": "stone_brick_stairs",
+    "material": "ston_stairs",
     "mode": "block",
     "top_color": [128, 128, 128, 255],
     "darken": true,
@@ -2892,6 +2919,14 @@
     "top_color": [152, 109, 76, 200],
     "darken": true,
     "legacy_id": 185
+  },
+  {
+    "namespace": "minecraft",
+    "material": "wooden_door",
+    "mode": "block",
+    "top_color": [60, 39, 18, 200],
+    "darken": true,
+    "legacy_id": 186
   },
   {
     "namespace": "minecraft",

@@ -131,12 +131,54 @@ def load_arena(nbt_filepath, arena_bbox=(0,4,0,20,20,20)):
     # Draw the loaded blocks
     client.spawnBlocks(Blocks(blocks=blocks))
 
+def load_target(nbt_filepath):
+    assert os.path.isfile(nbt_filepath) and '.nbt' in nbt_filepath
+    nbtfile = nbt.NBTFile(nbt_filepath, 'rb')
+
+    min_x, max_x = (nbtfile['blocks'][0]['pos'][0].value, nbtfile['blocks'][0]['pos'][0].value)
+    min_y, max_y = (nbtfile['blocks'][0]['pos'][1].value, nbtfile['blocks'][0]['pos'][1].value)
+    min_z, max_z = (nbtfile['blocks'][0]['pos'][2].value, nbtfile['blocks'][0]['pos'][2].value)
+
+    block_types = [block_type['Name'].value.split(":")[-1].upper() for block_type in nbtfile['palette']]
+    block_dict = OrderedDict([(block_type, []) for block_type in block_types])
+    for block_idx, block_type in enumerate(block_types):
+        block_dict[block_type].append(block_idx)
+
+    # force air to be the first channel
+    block_list = list(block_dict.keys())
+    air_idx = block_list.index("AIR")
+    block_list[air_idx] = block_list[0]
+    block_list[0] = "AIR"
+
+    target_shape = (nbtfile['size'][0].value, nbtfile['size'][1].value, nbtfile['size'][2].value, len(block_list))
+    target = torch.empty(target_shape)
+
+    for block in nbtfile['blocks']:
+        cur_x, cur_y, cur_z = block['pos'][0].value, block['pos'][1].value, block['pos'][2].value
+        min_x = min(min_x, cur_x)
+        max_x = max(max_x, cur_x)
+        min_y = min(min_y, cur_y)
+        max_y = max(max_y, cur_y)
+        min_z = min(min_z, cur_z)
+        max_z = max(max_z, cur_z)
+
+        cur_block_type = block['state'].value
+        for i, (k, v) in enumerate(block_dict.items()):
+            if cur_block_type in v:
+                cur_block_type = i
+        if cur_block_type == 0:
+            cur_block_type = air_idx
+        elif cur_block_type == air_idx:
+            cur_block_type = 0
+        target[cur_x, cur_y, cur_z] = torch.nn.functional.one_hot(torch.tensor(cur_block_type), len(block_list))
+
+    return target, block_list
 
 def get_minecraft_color_list(block_list):
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'palette.json'), 'rb') as f:
         json_data = json.load(f)
     color_dict = OrderedDict.fromkeys(block_list)
     for block_data in json_data:
-        if block_data["mode"] == "block" and block_data["material"].upper() in block_list:
+        if block_data["material"].upper() in block_list:
             color_dict[block_data["material"].upper()] = torch.tensor(block_data["top_color"]).float() / 255.0
     return list(color_dict.values())
