@@ -3,10 +3,10 @@ import torch
 import numbers
 from evocraftsearch import System
 from evocraftsearch.utils.torch_utils import SphericPad
-from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, MultiBinarySpace
+from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, MultiBinarySpace, CPPNSpace
 from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
-from pytorchneat.activations import str_to_activation
+from math import floor, cos, sin, pi
 from copy import deepcopy
 import warnings
 import time
@@ -23,76 +23,86 @@ def tuple_to_str_key(tuple_key):
 
 """ =============================================================================================
 Initialization Space: 
-    - CPPNInitSpace
 ============================================================================================= """
-
-class CPPNSpace(Space):
-
-    @staticmethod
-    def default_config():
-        default_config = Dict()
-        return default_config
-
-    def __init__(self, config={}, **kwargs):
-        self.config = self.__class__.default_config()
-        self.config.update(config)
-        self.config.update(kwargs)
-
-        super().__init__(shape=None, dtype=None)
-
-    def sample(self):
-        genome = self.config.neat_config.genome_type(0)
-        genome.configure_new(self.config.neat_config.genome_config)
-        return genome
-
-    def mutate(self, genome):
-        # genome: policy_parameters.init_matnucleus_genome pytorchneat.SelfConnectionGenome
-        new_genome = deepcopy(genome)
-        new_genome.mutate(self.config.neat_config.genome_config)
-        return new_genome
-
-    def crossover(self, genome_1, genome_2):
-        genome_1 = deepcopy(genome_1)
-        genome_2 = deepcopy(genome_2)
-        if genome_1.fitness is None:
-            genome_1.fitness = 0.0
-        if genome_2.fitness is None:
-            genome_2.fitness = 0.0
-        child_1 = self.config.neat_config.genome_type(0)
-        child_1.configure_crossover(genome_1, genome_2, self.config.neat_config.genome_config)
-        child_2 = self.config.neat_config.genome_type(0)
-        child_2.configure_crossover(genome_1, genome_2, self.config.neat_config.genome_config)
-        return child_1, child_2
-
-
-    def contains(self, x):
-        # TODO from neat config max connections/weights
-        return True
-
-    def clamp(self, x):
-        # TODO from neat config max connections/weights
-        return x
 
 class CppnPotentialCAInitializationSpace(DictSpace):
 
-    @staticmethod
-    def default_config():
-        default_config = Dict()
-        default_config.neat_config = None
-        default_config.cppn_n_passes = 3
-        return default_config
+    def __init__(self, n_blocks, neat_config):
 
-    def __init__(self,  config={}, **kwargs):
-        self.config = self.__class__.default_config()
-        self.config.update(config)
-        self.config.update(kwargs)
+        self.n_blocks = n_blocks
+        self.neat_config = neat_config
 
-        spaces = Dict(
-            cppn_genome=CPPNSpace(self.config)
-        )
+        self.C = MultiBinarySpace(n=n_blocks-1, indpb=0.01)
+        self.I = DictSpace(
+                cppn_genome=CPPNSpace(neat_config),
+                occupation_ratio=BoxSpace(low=0.2, high=0.4, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
+            )
 
-        DictSpace.__init__(self, spaces=spaces)
+    def sample(self):
+        x = Dict()
+        x['C'] = self.C.sample()
+        x['I'] = Dict()
+        for c in range(1, self.n_blocks):
+            is_channel = bool(x['C'][c-1])
+            if is_channel:
+                x['I'][str(c)] = self.I.sample()
+        return x
 
+    def mutate(self, x):
+        # genome: policy_parameters.init_matnucleus_genome pytorchneat.SelfConnectionGenome
+        new_x = Dict()
+        new_x['C'] = self.C.mutate(x['C'])
+        new_x['I'] = Dict()
+        for c in range(1, self.n_blocks):
+            is_channel = bool(new_x['C'][c - 1])
+            if is_channel:
+                was_channel = bool(x['C'][c - 1])
+                if was_channel:
+                    new_x['I'][str(c)] = self.I.mutate(x['I'][str(c)])
+                else:
+                    new_x['I'][str(c)] = self.I.sample()
+        return new_x
+
+    def crossover(self, x1, x2):
+        # genome: policy_parameters.init_matnucleus_genome pytorchneat.SelfConnectionGenome
+        child_1, child_2 = Dict(), Dict()
+        child_1['C'], child_2['C'] = self.C.crossover(x1['C'], x2['C'])
+        child_1['I'], child_2['I'] = Dict(), Dict()
+
+        for c in range(1, self.n_blocks):
+            was_x1_channel = bool(x1['C'][c - 1])
+            was_x2_channel = bool(x2['C'][c - 1])
+            is_child_1_channel = bool(child_1['C'][c - 1])
+            is_child_2_channel = bool(child_2['C'][c - 1])
+
+            if is_child_1_channel or is_child_2_channel:
+                if was_x1_channel:
+                    cur_x1_K = x1['I'][str(c)]
+                else:
+                    cur_x1_K = self.I.sample()
+
+                if was_x2_channel:
+                    cur_x2_K = x2['I'][str(c)]
+                else:
+                    cur_x2_K = self.I.sample()
+
+                cur_child_1, cur_child_2 = self.I.crossover(cur_x1_K, cur_x2_K)
+
+                if is_child_1_channel:
+                    child_1['I'][str(c)] = cur_child_1
+
+                if is_child_2_channel:
+                    child_2['I'][str(c)] = cur_child_2
+
+        return child_1, child_2
+
+    def contains(self, x):
+        return all(self.I.contains(I) for I in x['I'].values())
+
+    def clamp(self, x):
+        for str_key, K in x['I'].items():
+            x['I'][str_key] = self.I.clamp(K)
+        return x
 
 
 """ =============================================================================================
@@ -117,24 +127,14 @@ class BiasedMultiBinarySpace(MultiBinarySpace):
         return torch.bernoulli(self.indpb_sample).to(self.dtype)
 
 
-
 class CppnPotentialCAUpdateRuleSpace(Space):
 
-    @staticmethod
-    def default_config():
-        default_config = Dict()
-        default_config.neat_config = None
-        default_config.cppn_n_passes = 2
-        return default_config
-
-    def __init__(self, n_blocks, config={}, **kwargs):
-        self.config = self.__class__.default_config()
-        self.config.update(config)
-        self.config.update(kwargs)
+    def __init__(self, n_blocks, neat_config):
 
         self.n_blocks = n_blocks
+        self.neat_config = neat_config
 
-        self.T = BoxSpace(low=1.0, high=2.0, shape=(), mutation_mean=0.0, mutation_std=0.2, indpb=0.5, dtype=torch.float32)
+        self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=0.2, indpb=0.5, dtype=torch.float32)
 
         n_cross_channels = (self.n_blocks - 1) ** 2
         indpb_sample_cross_channels = []
@@ -145,16 +145,17 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                     indpb_sample_cross_channels.append(1.0)
                     indpb_mutate_cross_channels.append(0.05)
                 else:
-                    indpb_sample_cross_channels.append(0.2)
+                    indpb_sample_cross_channels.append(0.1)
                     indpb_mutate_cross_channels.append(0.1)
 
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
 
         self.K = DictSpace(
-                R=DiscreteSpace(n=3, mutation_mean=0.0, mutation_std=0.5, indpb=0.5),
-                cppn_genome=CPPNSpace(self.config),
-                m=BoxSpace(low=0.0, high=1.0, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
-                s=BoxSpace(low=0.001, high=0.3, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
+                R=DiscreteSpace(n=6, mutation_mean=0.0, mutation_std=0.5, indpb=0.5),
+                cppn_genome=CPPNSpace(neat_config),
+                m=BoxSpace(low=0.1, high=0.5, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
+                s=BoxSpace(low=0.1, high=0.3, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
+                h=BoxSpace(low=0.1, high=1.0, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
             )
 
     def sample(self):
@@ -180,9 +181,9 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         unrolled_idx = 0
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
-                is_cross_kernel = new_x['C'][unrolled_idx]
+                is_cross_kernel = bool(new_x['C'][unrolled_idx])
                 if is_cross_kernel:
-                    was_cross_kernel = x['C'][unrolled_idx]
+                    was_cross_kernel = bool(x['C'][unrolled_idx])
                     if was_cross_kernel:
                         new_x['K'][tuple_to_str_key((c0, c1))] = self.K.mutate(x['K'][tuple_to_str_key((c0, c1))])
                     else:
@@ -200,10 +201,10 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         unrolled_idx = 0
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
-                was_x1_cross_kernel = x1['C'][unrolled_idx]
-                was_x2_cross_kernel = x2['C'][unrolled_idx]
-                is_child_1_cross_kernel = child_1['C'][unrolled_idx].bool().item()
-                is_child_2_cross_kernel = child_2['C'][unrolled_idx].bool().item()
+                was_x1_cross_kernel = bool(x1['C'][unrolled_idx])
+                was_x2_cross_kernel = bool(x2['C'][unrolled_idx])
+                is_child_1_cross_kernel = bool(child_1['C'][unrolled_idx])
+                is_child_2_cross_kernel = bool(child_2['C'][unrolled_idx])
 
                 if is_child_1_cross_kernel or is_child_2_cross_kernel:
                     if was_x1_cross_kernel:
@@ -242,18 +243,53 @@ class CppnPotentialCAUpdateRuleSpace(Space):
 """ =============================================================================================
 CppnPotentialCA Main
 ============================================================================================= """
+# CppnPotentialCA Initialization
+class CppnPotentialCAInitialization(torch.nn.Module):
+    """ Module pytorch that computes one CppnPotentialCA Initialization """
 
-# CppnPotentialCA Step version (faster)
-class CppnPotentialCAStep(torch.nn.Module):
-    """ Module pytorch that computes one CppnPotentialCA Step with the fft version"""
-
-    def __init__(self, T, K, cppn_config, max_potential=10.0, is_soft_clip=False, SX=16, SY=16, SZ=16, device='cpu'):
+    def __init__(self, I, cppn_config, max_potential=1.0, device='cpu'):
         torch.nn.Module.__init__(self)
 
         self.cppn_config = cppn_config
-        self.SX = SX
-        self.SY = SY
-        self.SZ = SZ
+        self.max_potential = max_potential
+        self.device = device
+        self.register_cppns(I)
+
+        self.to(self.device)
+
+
+    def register_cppns(self, I):
+        self.I = torch.nn.Module()
+        for str_key, I in I.items():
+            module_cur_I = torch.nn.Module()
+            module_cur_I.register_buffer('occupation_ratio', I['occupation_ratio'])
+            module_cur_I.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(I['cppn_genome'], self.cppn_config, device=self.device))
+            self.I.add_module(str_key, module_cur_I)
+
+
+    def forward(self, output_size=(16,16,16,10)):
+        output_img = torch.zeros(output_size, device=self.device)
+        for str_key, I in self.I.named_children():
+            c = int(str_key)
+            # the cppn generated output is confined to a limited space:
+            c_output_size = tuple([int(s * I.occupation_ratio) for s in output_size[:-1]])
+            c_cppn_input = pytorchneat.utils.create_image_cppn_input(c_output_size, is_distance_to_center=True, is_bias=True)
+            c_cppn_output = (self.max_potential - self.max_potential * I.cppn_net.activate(c_cppn_input, 3).abs()).squeeze() # TODO: config cppn_n_passes
+            offset_X = floor((output_size[0] - c_cppn_output.shape[0]) / 2)
+            offset_Y = floor((output_size[1] - c_cppn_output.shape[1]) / 2)
+            offset_Z = floor((output_size[2] - c_cppn_output.shape[2]) / 2)
+            output_img[offset_X:offset_X+c_cppn_output.shape[0], offset_Y:offset_Y+c_cppn_output.shape[1], offset_Z:offset_Z+c_cppn_output.shape[2], c] = c_cppn_output
+        return output_img
+
+
+# CppnPotentialCA Step
+class CppnPotentialCAStep(torch.nn.Module):
+    """ Module pytorch that computes one CppnPotentialCA Step """
+
+    def __init__(self, T, K, cppn_config, max_potential=1.0, is_soft_clip=False, device='cpu'):
+        torch.nn.Module.__init__(self)
+
+        self.cppn_config = cppn_config
         self.is_soft_clip = is_soft_clip
 
         self.device = device
@@ -266,13 +302,14 @@ class CppnPotentialCAStep(torch.nn.Module):
 
     def register_kernels(self, K):
         self.K = torch.nn.Module()
-        for str_key, K in K.items():
+        for str_key, cur_K in K.items():
             module_cur_K = torch.nn.Module()
-            module_cur_K.register_buffer('R', K['R']+2)
-            module_cur_K.add_module('pad', SphericPad(K['R']+2))
-            module_cur_K.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(K['cppn_genome'], self.cppn_config, device=self.device))
-            module_cur_K.register_parameter('m', torch.nn.Parameter(K['m']))
-            module_cur_K.register_parameter('s', torch.nn.Parameter(K['s']))
+            module_cur_K.register_buffer('R', cur_K['R']+2)
+            module_cur_K.add_module('pad', SphericPad(cur_K['R']+2))
+            module_cur_K.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(cur_K['cppn_genome'], self.cppn_config, device=self.device))
+            module_cur_K.register_parameter('m', torch.nn.Parameter(cur_K['m']))
+            module_cur_K.register_parameter('s', torch.nn.Parameter(cur_K['s']))
+            module_cur_K.register_parameter('h', torch.nn.Parameter(cur_K['h']))
             self.K.add_module(str_key, module_cur_K)
 
     def reset_kernels(self):
@@ -280,12 +317,13 @@ class CppnPotentialCAStep(torch.nn.Module):
         for str_key, K in self.K.named_children():
             kernel_SY = kernel_SX = kernel_SZ = 2 * K.R + 1
             cppn_input = pytorchneat.utils.create_image_cppn_input((kernel_SY, kernel_SX, kernel_SZ), is_distance_to_center=True, is_bias=True)
-            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, 2).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
+            cppn_output_kernel = (self.max_potential - self.max_potential * K.cppn_net.activate(cppn_input, 3).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
             kernel_sum = torch.sum(cppn_output_kernel)
             if kernel_sum > 0:
                 self.kernels[str_key] = cppn_output_kernel / kernel_sum
             else:
                 self.kernels[str_key] = cppn_output_kernel
+
 
     def forward(self, input):
         field = torch.zeros_like(input)
@@ -294,9 +332,10 @@ class CppnPotentialCAStep(torch.nn.Module):
             with torch.no_grad():
                 padded_input = K.pad(input[:, :, :, :, c0]).unsqueeze(0)
             potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key])
-            field[:, :, :, :, c1] += self.gfunc(potential, K.m, K.s).squeeze(1)
+            delta_field_c1 = self.gfunc(potential, K.m, K.s).squeeze(1)
+            field[:, :, :, :, c1] = field[:, :, :, :, c1] + K.h * delta_field_c1
 
-        # because c1=0 not in kernels, the potential of the air is fixed to cste, meaning that to survive potential of other block types must be > 1!
+        # because c1=0 not in kernels, the potential of the air is fixed to cste, meaning that to survive potential of other block types must be > air_potential
         output_potential = torch.clamp(input + (1.0 / self.T) * field, min=0.0, max=self.max_potential)
 
         return output_potential
@@ -315,10 +354,6 @@ class CppnPotentialCA(System, torch.nn.Module):
 
         default_config.air_potential = 1.0
         default_config.max_potential = 10.0
-        default_config.initialization_cppn.presence_logit = 'gumbel' # 'threshold' or 'gumbel'
-        default_config.initialization_cppn.presence_bias = 1.0  # bias for sampling presence (when negative encourages absence)
-        default_config.initialization_cppn.occupation_ratio = 1.0 / 1.0 # the initial state is confined to occupation_ratio of the world grid
-
         return default_config
 
 
@@ -332,14 +367,8 @@ class CppnPotentialCA(System, torch.nn.Module):
 
         self.device = device
 
-        if initialization_space is not None:
-            self.initialization_space = initialization_space
-        else:
-            self.initialization_space = CppnPotentialCAInitializationSpace()
-        if update_rule_space is not None:
-            self.update_rule_space = update_rule_space
-        else:
-            self.update_rule_space = CppnPotentialCAUpdateRuleSpace(self.n_blocks)
+        self.initialization_space = initialization_space
+        self.update_rule_space = update_rule_space
         self.intervention_space = intervention_space
         self.run_idx = 0
 
@@ -371,81 +400,38 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.initialization_parameters = policy['initialization']
         self.update_rule_parameters = policy['update_rule']
 
-        # initialize CppnPotentialCA CA with update rule parameters
-        cppn_potential_ca_step = CppnPotentialCAStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.config.neat_config, self.config.max_potential, is_soft_clip=False, SX=self.config.SX, SY=self.config.SY, SZ=self.config.SZ, device=self.device)
-        self.add_module('cppn_potential_ca_step', cppn_potential_ca_step)
-
         # initialize CppnPotentialCA initial potential with initialization_parameters
-        # The explorer can sample:
-        # (i) which channel to start with
-        # (ii) for each selected channel:  a cppn with n_outputs = 1 and a bbox to position it (+resolution?)
-        cppn_genome = self.initialization_parameters['cppn_genome']
-        initialization_cppn = pytorchneat.rnn.RecurrentNetwork.create(cppn_genome, self.initialization_space.config.neat_config, device=self.device)
-        self.add_module('initialization_cppn', initialization_cppn)
+        ca_init = CppnPotentialCAInitialization(self.initialization_parameters['I'], self.initialization_space.neat_config, max_potential=self.config.max_potential, device=self.device)
+        self.add_module('ca_init', ca_init)
 
-        # v1 differentiable: n_outputs CPPN = 2 + (n_blocks-1)
-        # first two outputs are given a ReLU activation function and serve as logits (+- presence bias) for presence classification
-        if self.config.initialization_cppn.presence_logit == 'gumbel':
-            # the other ones are for logits block types so we assign them relu activations
-            for i in range(self.n_blocks+1):
-                self.initialization_cppn.output_activations[i] = str_to_activation['relu']
-        # v2 hard threshold: n_outputs CPPN = 1 + (n_blocks-1)
-        # first output is given an activation that maps to [-1,1] and then we threshold > presence bias for presence classification
-        elif self.config.initialization_cppn.presence_logit == 'threshold':
-            assert self.initialization_cppn.output_activations[0].__name__.split('_')[:-1] in ['delphineat_sigmoid', 'delphineat_gauss', 'tanh', 'sin']
-            # the other ones are for logits block types so we assign them relu activations
-            for i in range (1, self.n_blocks):
-                self.initialization_cppn.output_activations[i] = str_to_activation['relu']
-        else:
-            raise NotImplementedError
+        # initialize CppnPotentialCA CA step with update rule parameters
+        ca_step = CppnPotentialCAStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.neat_config, self.config.max_potential, is_soft_clip=False, device=self.device)
+        self.add_module('ca_step', ca_step)
 
         # push the nn.Module and the available devoce
         self.to(self.device)
 
+        self.generate_update_rule_kernels()
+        self.generate_init_potential()
+
 
     def generate_update_rule_kernels(self):
-        self.cppn_potential_ca_step.reset_kernels()
+        self.ca_step.reset_kernels()
 
 
     def generate_init_potential(self):
-        # TODO: tau as attribute to decrease
-
-        # the cppn generated output is confined to a limited space:
-        cppn_output_width = int(self.config.SX * self.config.initialization_cppn.occupation_ratio)
-        cppn_output_height = int(self.config.SY * self.config.initialization_cppn.occupation_ratio)
-        cppn_output_depth = int(self.config.SZ * self.config.initialization_cppn.occupation_ratio)
-        cppn_input = pytorchneat.utils.create_image_cppn_input((cppn_output_width, cppn_output_height, cppn_output_depth), is_distance_to_center=True, is_bias=True)
-        cppn_output = self.initialization_cppn.activate(cppn_input, self.initialization_space.config.cppn_n_passes)
-
-        # compute presence/absence mask
-        if self.config.initialization_cppn.presence_logit == 'gumbel':
-            cppn_output_presence_logits = cppn_output[:, :, :, :2]
-            cppn_output_presence_logits[:, :, :, 1] += self.config.initialization_cppn.presence_bias
-            cppn_output_presence_logits = torch.log(cppn_output_presence_logits)
-            cppn_output_presence = torch.nn.functional.gumbel_softmax(cppn_output_presence_logits, tau=0.01, hard=True, eps=1e-10, dim=-1).argmax(-1)
-        elif self.config.initialization_cppn.presence_logit == 'threshold':
-            cppn_output_presence = cppn_output[:, :, :, :0] < self.config.initialization_cppn.presence_bias
-        else:
-            raise NotImplementedError
-        cppn_output_presence = cppn_output_presence.unsqueeze(-1)
-
-        # compute block potentials
-        cppn_output_block_potentials = cppn_output_presence * torch.clamp(cppn_output[:, :, :, -(self.n_blocks-1):], min=0.0, max=self.config.max_potential)
-
-        # generate the world sparse init potential
-        init_potential = torch.zeros(1, self.config.SX, self.config.SY, self.config.SZ, self.n_blocks, dtype=torch.float64)
-        init_potential[0, :, :, :, 0] = self.config.air_potential
-        offset = int((self.config.SX - cppn_output_width) // 2.0)
-        init_potential[0, offset:offset+cppn_output_width, offset:offset+cppn_output_height, offset:offset+cppn_output_depth, 1:] = cppn_output_block_potentials
-        self.potential = init_potential.to(self.device)
-        sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0 #todo: dont detach?
-        self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1,self.n_blocks) * self.potential, format="BXXXC")
+        init_potential = self.ca_init(output_size=(self.config.SX, self.config.SY, self.config.SZ, self.n_blocks)).unsqueeze(0)
+        init_potential[:, :, :, :, 0] = self.config.air_potential
+        self.potential = init_potential
+        #sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0 #todo: dont detach?
+        #self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1,self.n_blocks) * self.potential, format="BXXXC")
         self.step_idx = 0
 
 
     def update_initialization_parameters(self):
-        new_initialization_parameters = Dict()
-        new_initialization_parameters['cppn_genome'] = self.initialization_cppn.update_genome(self.initialization_parameters['cppn_genome'])
+        new_initialization_parameters = deepcopy(self.initialization_parameters)
+        for str_key, module in self.ca_init.I.named_children():
+            new_initialization_parameters['I'][str_key]['cppn_genome'] = module.cppn_net.update_genome(self.initialization_parameters['I'][str_key]['cppn_genome'])
         if not self.initialization_space.contains(new_initialization_parameters):
             new_initialization_parameters = self.initialization_space.clamp(new_initialization_parameters)
             warnings.warn('provided parameters are not in the space range and are therefore clamped')
@@ -454,10 +440,12 @@ class CppnPotentialCA(System, torch.nn.Module):
 
     def update_update_rule_parameters(self):
         new_update_rule_parameters = deepcopy(self.update_rule_parameters)
-        new_update_rule_parameters['T'] = self.cppn_potential_ca_step.T.data
-        for str_key, module in self.cppn_potential_ca_step.K.named_children():
+        new_update_rule_parameters['T'] = self.ca_step.T.data
+        for str_key, module in self.ca_step.K.named_children():
+            new_update_rule_parameters['K'][str_key]['cppn_genome'] = module.cppn_net.update_genome(self.update_rule_parameters['K'][str_key]['cppn_genome'])
             new_update_rule_parameters['K'][str_key]['m'] = module.m.data
             new_update_rule_parameters['K'][str_key]['s'] = module.s.data
+            new_update_rule_parameters['K'][str_key]['h'] = module.h.data
         if not self.update_rule_space.contains(new_update_rule_parameters):
             new_update_rule_parameters = self.update_rule_space.clamp(new_update_rule_parameters)
             warnings.warn('provided parameters are not in the space range and are therefore clamped')
@@ -471,14 +459,31 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.train()
         train_losses = []
 
-        self.optimizer = torch.optim.Adam([{'params': self.initialization_cppn.parameters(), 'lr': 0.001},
-                                             {'params': self.cppn_potential_ca_step.K.parameters(), 'lr': 0.01},
-                                             {'params': self.cppn_potential_ca_step.T, 'lr': 0.1}])
+        # param_list = [] #[{'params': self.ca_step.T, 'lr': 0.01}]
+        # for str_key, K in self.ca_step.K.named_children():
+        #     param_list.append({'params': K.m, 'lr': 0.01})
+        #     param_list.append({'params': K.s, 'lr': 0.01})
+        #     param_list.append({'params': K.h, 'lr': 0.01})
+
+        # self.optimizer = torch.optim.Adam([{'params': self.ca_init.I.parameters(), 'lr': 0.01},
+        #                                     {'params': self.ca_step.K.parameters(), 'lr': 0.01},
+        #                                     {'params': self.ca_step.T, 'lr': 0.01}])
+
+        #self.optimizer = torch.optim.Adam(param_list)
+
+        self.optimizer = torch.optim.Adam([{'params': self.ca_init.I.parameters(), 'lr': 0.1},
+                          {'params': self.ca_step.K.parameters(), 'lr': 0.1},
+                          {'params': self.ca_step.T, 'lr': 0.1}
+                          ])
 
         for optim_step_idx in range(optim_steps):
 
             # run system
-            observations = self.system.run()
+            for str_key, K in self.update_rule_parameters.K.items():
+                c0, c1 = str_to_tuple_key(str_key)
+            observations = self.run()
+            if self.is_dead:
+                break
 
             # compute error between reached_goal and target_goal
             loss = loss_func(observations)
@@ -495,25 +500,29 @@ class CppnPotentialCA(System, torch.nn.Module):
             train_losses.append(loss.item())
 
         # gather back the trained parameters
-        self.system.update_initialization_parameters()
-        self.system.update_update_rule_parameters()
+        self.update_initialization_parameters()
+        self.update_update_rule_parameters()
 
         return train_losses
 
     def step(self, intervention_parameters=None):
         # clamp params if was changed outside of allowed bounds with gradient Descent
         with torch.no_grad():
-            if not self.update_rule_space.T.contains(self.cppn_potential_ca_step.T.data.cpu()):
-                self.cppn_potential_ca_step.T.data = self.update_rule_space.T.clamp(self.cppn_potential_ca_step.T.data)
-            for str_key, module in self.cppn_potential_ca_step.K.named_children():
-                if not self.update_rule_space.K['m'].contains(module.m.data.cpu()):
+            if not self.update_rule_space.T.contains(self.ca_step.T.data):
+                self.ca_step.T.data = self.update_rule_space.T.clamp(self.ca_step.T.data)
+            for str_key, module in self.ca_step.K.named_children():
+                if not self.update_rule_space.K['m'].contains(module.m.data):
                     module.m.data = self.update_rule_space.K['m'].clamp(module.m.data)
-                if not self.update_rule_space.K['s'].contains(module.s.data.cpu()):
+                if not self.update_rule_space.K['s'].contains(module.s.data):
                     module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
-        self.potential = self.cppn_potential_ca_step(self.potential)
-        sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0
-        self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1, self.n_blocks) * self.potential, format="BXXXC")
+                if not self.update_rule_space.K['h'].contains(module.h.data):
+                    module.h.data = self.update_rule_space.K['h'].clamp(module.h.data)
+        self.potential = self.ca_step(self.potential)
+        #sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0
+        #self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1, self.n_blocks) * self.potential, format="BXXXC")
         self.step_idx += 1
+
+        self.is_dead = self.potential.detach().argmax(-1).sum() == 0
 
         return self.potential
 
@@ -523,20 +532,24 @@ class CppnPotentialCA(System, torch.nn.Module):
         return potential
 
 
-    def run(self):
+    def run(self, render=False, render_mode="human"):
         self.generate_update_rule_kernels()
         self.generate_init_potential()
         observations = Dict()
         observations.timepoints = list(range(self.config.final_step))
         observations.potentials = torch.empty((self.config.final_step, self.config.SX, self.config.SY, self.config.SZ, self.n_blocks))
         observations.potentials[0] = self.potential[0]
-        sparse_potentials_coords = [self.sparse_potential.C]
-        sparse_potentials_feats = [self.sparse_potential.F]
+        # sparse_potentials_coords = [self.sparse_potential.C]
+        # sparse_potentials_feats = [self.sparse_potential.F]
         for step_idx in range(1, self.config.final_step):
-            cur_observation = self.step(None)
-            observations.potentials[step_idx] = cur_observation[0]
-            sparse_potentials_coords.append(self.sparse_potential.C)
-            sparse_potentials_feats.append(self.sparse_potential.F)
+            if render:
+                self.render(mode=render_mode)
+            _ = self.step(None)
+            observations.potentials[step_idx] = self.potential[0]
+            if self.is_dead:
+                break
+            # sparse_potentials_coords.append(self.sparse_potential.C)
+            # sparse_potentials_feats.append(self.sparse_potential.F)
 
         return observations
 
@@ -548,12 +561,13 @@ class CppnPotentialCA(System, torch.nn.Module):
         cur_potential = self.potential[0].cpu().detach()
         coords = []
         feats = []
+        offset = torch.tensor([self.config.SX/2.,self.config.SY/2.,self.config.SZ/2.])
         for i in range(self.config.SX):
             for j in range(self.config.SY):
                 for k in range(self.config.SZ):
                     block_id = cur_potential[i, j, k].cpu().detach().argmax()
                     if block_id > 0:
-                        coords.append(torch.tensor([i, j, k], dtype=torch.float64))
+                        coords.append(torch.tensor([i, j, k], dtype=torch.float64) - offset)
                         feats.append(block_id.unsqueeze(-1))
         if len(coords) > 0:
             coords = torch.stack(coords)
@@ -563,16 +577,29 @@ class CppnPotentialCA(System, torch.nn.Module):
             voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
             vis.add_geometry(voxel_grid)
         if mode == "human":
-           vis.run()
-           vis.close()
-           return
+            p_cam = o3d.camera.PinholeCameraParameters()
+            p_cam.intrinsic.set_intrinsics(width=800, height=800, fx=0, fy=0, cx=399.5, cy=399.5)
+            R = get_rotation_matrix(pi/4.0, pi/4., 0)
+            d = 1.2*max(self.config.SX, self.config.SY, self.config.SZ)
+            t = torch.tensor([self.config.SX/8.0, 0, d])
+            p_cam.extrinsic = torch.tensor([[R[0,0], R[0,1], R[0,2], t[0]],
+                                            [R[1,0], R[1,1], R[1,2], t[1]],
+                                            [R[2,0], R[2,1], R[2,2], t[2]],
+                                            [0., 0., 0., 1.]])
+            ctr = vis.get_view_control()
+            ctr.convert_from_pinhole_camera_parameters(p_cam)
+            #ctr.rotate(200,200)
+            #ctr.set_zoom(1.4)
+            vis.run()
+            vis.close()
+            return
         elif mode == "rgb_array":
             out_image = vis.capture_screen_float_buffer(True)
             return out_image
         else:
             raise NotImplementedError
 
-
+    """
     def render_video(self, states, mode="human"):
         vis = o3d.visualization.Visualizer()
         vis.create_window('states', 800, 800)
@@ -607,7 +634,21 @@ class CppnPotentialCA(System, torch.nn.Module):
             return out_image
         else:
             raise NotImplementedError
-
+    """
 
     def close(self):
         pass
+
+
+def get_rotation_matrix(theta_x, theta_y, theta_z):
+    R_x = torch.tensor([[1., 0., 0.],
+                        [0., cos(theta_x), -sin(theta_x)],
+                        [0., sin(theta_x), cos(theta_x)]])
+    R_y = torch.tensor([[cos(theta_y), 0., sin(theta_y)],
+                        [0., 1.0, 0.0],
+                        [-sin(theta_y), 0.0, cos(theta_y)]])
+    R_z = torch.tensor([[cos(theta_z), -sin(theta_z), 0.0],
+                        [sin(theta_z), cos(theta_z), 0.0],
+                        [0., 0., 1.]])
+    R = R_z.matmul(R_y.matmul(R_x))
+    return R
