@@ -20,24 +20,29 @@ class TestEAExplorer(TestCase):
         # Load Target
         target, block_list = load_target("/home/mayalen/code/08-EvoCraft/structures/desert_temple.nbt")
         pad = 1
-        SX = target.shape[0] + 2 * pad
-        SY = target.shape[1] + 2 * pad
-        SZ = target.shape[2] + 2 * pad
+        max_size = max(target.shape)
+        pad_x = pad + (max_size - target.shape[0] + 1) // 2
+        pad_y = pad + (max_size - target.shape[1] + 1) // 2
+        pad_z = pad + (max_size - target.shape[2] + 1) // 2
+        SX = target.shape[0] + 2 * pad_x
+        SY = target.shape[1] + 2 * pad_y
+        SZ = target.shape[2] + 2 * pad_z
+        print(SX,SY,SZ)
         n_blocks = target.shape[-1]
         air_one_hot = torch.nn.functional.one_hot(torch.tensor(0), n_blocks).unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        target = torch.cat([target, air_one_hot.repeat(pad, target.shape[1], target.shape[2], 1)], dim=0)
-        target = torch.cat([target, air_one_hot.repeat(target.shape[0], pad, target.shape[2], 1)], dim=1)
-        target = torch.cat([target, air_one_hot.repeat(target.shape[0], target.shape[1], pad, 1)], dim=2)
-        target = torch.cat([air_one_hot.repeat(pad, target.shape[1], target.shape[2], 1), target], dim=0)
-        target = torch.cat([air_one_hot.repeat(target.shape[0], pad, target.shape[2], 1), target], dim=1)
-        target = torch.cat([air_one_hot.repeat(target.shape[0], target.shape[1], pad, 1), target], dim=2)
+        target = torch.cat([target, air_one_hot.repeat(pad_x, target.shape[1], target.shape[2], 1)], dim=0)
+        target = torch.cat([target, air_one_hot.repeat(target.shape[0], pad_y, target.shape[2], 1)], dim=1)
+        target = torch.cat([target, air_one_hot.repeat(target.shape[0], target.shape[1], pad_z, 1)], dim=2)
+        target = torch.cat([air_one_hot.repeat(pad_x, target.shape[1], target.shape[2], 1), target], dim=0)
+        target = torch.cat([air_one_hot.repeat(target.shape[0], pad_y, target.shape[2], 1), target], dim=1)
+        target = torch.cat([air_one_hot.repeat(target.shape[0], target.shape[1], pad_z, 1), target], dim=2)
 
         # Load System
         cppn_potential_ca_config = CppnPotentialCA.default_config()
         cppn_potential_ca_config.SX = SX
         cppn_potential_ca_config.SY = SY
         cppn_potential_ca_config.SZ = SZ
-        cppn_potential_ca_config.final_step = 10
+        cppn_potential_ca_config.final_step = 20
         cppn_potential_ca_config.block_list = block_list
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
@@ -50,8 +55,8 @@ class TestEAExplorer(TestCase):
         update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.block_list), neat_config)
         system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
-        # system.potential = target.unsqueeze(0)
-        # system.render()
+        system.potential = target.unsqueeze(0)
+        system.render()
 
         # Load ExplorationDB
         db_config = ExplorationDB.default_config()

@@ -71,7 +71,6 @@ class EAExplorer(Explorer):
             observations = self.system.run()
             fitness = self.output_fitness.calc(observations).item()
 
-
         return ind_policy, observations, fitness
 
 
