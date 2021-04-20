@@ -1,0 +1,37 @@
+# conda
+conda create -n autodisc python=3.8
+conda activate autodisc
+conda install -c anaconda  pip=21.0.1
+conda install pytorch torchvision cudatoolkit=10.1.243 -c pytorch
+conda install -c conda-forge deap
+conda install -c conda-forge odfpy
+conda install -c conda-forge addict
+conda install -c conda-forge ffmpeg
+conda install -c conda-forge imageio
+conda install -c conda-forge python-graphviz
+conda install -c anaconda grpcio
+conda install -c conda-forge google-api-python-client
+
+## pip
+pip install neat-python==0.92
+pip install tqdm
+pip install NBT
+pip install pygifsicle #/!\ must also do sudo apt-get install gifsicle on Linux
+
+
+## Install MinkowskiEngine
+conda install -c anaconda openblas-devel
+sudo apt install g++-7
+export CXX=/usr/bin/g++-7 #specify the gcc path. Make sure that it exists.
+export CUDA_HOME=/usr/local/cuda # specify the cuda home. Make sure `$CUDA_HOME/nvcc --version` is matching with the conda env's cuda version
+pip install -U git+https://github.com/NVIDIA/MinkowskiEngine -v --no-deps --install-option="--blas_include_dirs=${CONDA_PREFIX}/include" --install-option="--blas=openblas"
+# If problems: try nvcc --version, if says no install add this to the bashrc and source it :
+##  export PATH="/usr/local/cuda/bin:$PATH"
+##  export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+
+## Install open3D
+conda install -c anaconda scikit-learn
+conda install -c anaconda pyyaml
+conda install -c anaconda pandas
+conda install -c conda-forge plyfile
+conda install -c open3d-admin open3d
