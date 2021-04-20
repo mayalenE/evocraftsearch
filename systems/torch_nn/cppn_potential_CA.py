@@ -9,10 +9,10 @@ import pytorchneat
 from math import floor, cos, sin, pi
 from copy import deepcopy
 import warnings
-import time
-import MinkowskiEngine as ME
 import open3d as o3d
-
+import imageio
+import pygifsicle
+import numpy as np
 
 def str_to_tuple_key(str_key):
     splitted_key = str_key.split("_")
@@ -151,10 +151,10 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
 
         self.K = DictSpace(
-                R=DiscreteSpace(n=6, mutation_mean=0.0, mutation_std=0.5, indpb=0.5),
+                R=DiscreteSpace(n=3, mutation_mean=0.0, mutation_std=0.5, indpb=0.5),
                 cppn_genome=CPPNSpace(neat_config),
                 m=BoxSpace(low=0.1, high=0.5, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
-                s=BoxSpace(low=0.1, high=0.3, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
+                s=BoxSpace(low=0.001, high=0.2, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
                 h=BoxSpace(low=0.1, high=1.0, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
             )
 
@@ -317,7 +317,7 @@ class CppnPotentialCAStep(torch.nn.Module):
         for str_key, K in self.K.named_children():
             kernel_SY = kernel_SX = kernel_SZ = 2 * K.R + 1
             cppn_input = pytorchneat.utils.create_image_cppn_input((kernel_SY, kernel_SX, kernel_SZ), is_distance_to_center=True, is_bias=True)
-            cppn_output_kernel = (self.max_potential - self.max_potential * K.cppn_net.activate(cppn_input, 3).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
+            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, 3).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
             kernel_sum = torch.sum(cppn_output_kernel)
             if kernel_sum > 0:
                 self.kernels[str_key] = cppn_output_kernel / kernel_sum
@@ -331,7 +331,9 @@ class CppnPotentialCAStep(torch.nn.Module):
             c0, c1 = str_to_tuple_key(str_key)
             with torch.no_grad():
                 padded_input = K.pad(input[:, :, :, :, c0]).unsqueeze(0)
-            potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key])
+                #padded_input = input[:, :, :, :, c0].unsqueeze(0)
+            potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key])  # TODO: spherical padding or not?
+            # potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key], padding=int(K.R.item()))
             delta_field_c1 = self.gfunc(potential, K.m, K.s).squeeze(1)
             field[:, :, :, :, c1] = field[:, :, :, :, c1] + K.h * delta_field_c1
 
@@ -352,8 +354,8 @@ class CppnPotentialCA(System, torch.nn.Module):
         default_config.block_list = ['AIR', 'CLAY', 'SLIME', 'PISTON', 'STICKY_PISTON', 'REDSTONE_BLOCK'] # block 0 is always air
         default_config.final_step = 10
 
-        default_config.air_potential = 1.0
-        default_config.max_potential = 10.0
+        default_config.air_potential = 0.1
+        default_config.max_potential = 1.0
         return default_config
 
 
@@ -459,16 +461,11 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.train()
         train_losses = []
 
-        # param_list = [] #[{'params': self.ca_step.T, 'lr': 0.01}]
+        # param_list = []
         # for str_key, K in self.ca_step.K.named_children():
         #     param_list.append({'params': K.m, 'lr': 0.01})
         #     param_list.append({'params': K.s, 'lr': 0.01})
         #     param_list.append({'params': K.h, 'lr': 0.01})
-
-        # self.optimizer = torch.optim.Adam([{'params': self.ca_init.I.parameters(), 'lr': 0.01},
-        #                                     {'params': self.ca_step.K.parameters(), 'lr': 0.01},
-        #                                     {'params': self.ca_step.T, 'lr': 0.01}])
-
         #self.optimizer = torch.optim.Adam(param_list)
 
         self.optimizer = torch.optim.Adam([{'params': self.ca_init.I.parameters(), 'lr': 0.1},
@@ -479,8 +476,6 @@ class CppnPotentialCA(System, torch.nn.Module):
         for optim_step_idx in range(optim_steps):
 
             # run system
-            for str_key, K in self.update_rule_parameters.K.items():
-                c0, c1 = str_to_tuple_key(str_key)
             observations = self.run()
             if self.is_dead:
                 break
@@ -522,7 +517,8 @@ class CppnPotentialCA(System, torch.nn.Module):
         #self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1, self.n_blocks) * self.potential, format="BXXXC")
         self.step_idx += 1
 
-        self.is_dead = self.potential.detach().argmax(-1).sum() == 0
+        discrete_potential = self.potential.detach().argmax(-1)
+        self.is_dead = torch.all(discrete_potential.eq(discrete_potential[0,0,0,0])) # if all values converge to same block, we consider the output dead
 
         return self.potential
 
@@ -555,8 +551,11 @@ class CppnPotentialCA(System, torch.nn.Module):
 
 
     def render(self, mode="human"):
+        visible = False
+        if mode=="human":
+            visible=True
         vis = o3d.visualization.Visualizer()
-        vis.create_window('Discovery',800,800)
+        vis.create_window('Discovery',800, 800, visible=visible)
         pcd = o3d.geometry.PointCloud()
         cur_potential = self.potential[0].cpu().detach()
         coords = []
@@ -590,6 +589,7 @@ class CppnPotentialCA(System, torch.nn.Module):
             ctr.convert_from_pinhole_camera_parameters(p_cam)
             #ctr.rotate(200,200)
             #ctr.set_zoom(1.4)
+            ctr.set_constant_z_far(2*d)
             vis.run()
             vis.close()
             return
@@ -599,42 +599,53 @@ class CppnPotentialCA(System, torch.nn.Module):
         else:
             raise NotImplementedError
 
-    """
-    def render_video(self, states, mode="human"):
+    def render_gif(self, potentials, gif_filepath):
+        t, SX, SY, SZ, n_channels = potentials.shape
         vis = o3d.visualization.Visualizer()
-        vis.create_window('states', 800, 800)
-        pcd = o3d.geometry.PointCloud()
-        step_idx = 0
-        cur_frame_C = []
-        cur_frame_F = []
-        for coords, feats in zip(states.C, states.F):
-            cur_step_idx = coords[0]
-            if cur_step_idx != step_idx:
-                vis.clear_geometries()
-                if len(cur_frame_C) > 0:
-                    pcd.points = o3d.utility.Vector3dVector(cur_frame_C)
-                    pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(self.blocks_colorlist[cur_frame_F[i].argmax()][:3]) for i in range(len(cur_frame_F))]))
-                    voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
-                    vis.add_geometry(voxel_grid)
-                    vis.poll_events()
-                    vis.update_renderer()
-                    time.sleep(2)
-                cur_frame_C = []
-                cur_frame_F = []
-                step_idx = cur_step_idx
-            else:
-                cur_frame_C.append(coords[1:])
-                cur_frame_F.append(feats)
-        if mode == "human":
-            vis.destroy_window()
-            vis.close()
-            return
-        elif mode == "rgb_array":
-            out_image = vis.capture_screen_float_buffer(True)
-            return out_image
-        else:
-            raise NotImplementedError
-    """
+        vis.create_window('Discovery Gif', 800, 800, visible=False)
+        p_cam = o3d.camera.PinholeCameraParameters()
+        p_cam.intrinsic.set_intrinsics(width=800, height=800, fx=0, fy=0, cx=399.5, cy=399.5)
+        R = get_rotation_matrix(pi / 4.0, pi / 4., 0)
+        d = 1.2 * max(SX, SY, SZ)
+        t = torch.tensor([SX / 8.0, 0, d])
+        p_cam.extrinsic = torch.tensor([[R[0, 0], R[0, 1], R[0, 2], t[0]],
+                                        [R[1, 0], R[1, 1], R[1, 2], t[1]],
+                                        [R[2, 0], R[2, 1], R[2, 2], t[2]],
+                                        [0., 0., 0., 1.]])
+        gif_images = []
+        for potential in potentials:
+            pcd = o3d.geometry.PointCloud()
+            cur_potential = potential.cpu().detach()
+            coords = []
+            feats = []
+            offset = torch.tensor([SX/2., SY/2., SZ/2.])
+            for i in range(SX):
+                for j in range(SY):
+                    for k in range(SZ):
+                        block_id = cur_potential[i, j, k].cpu().detach().argmax()
+                        if block_id > 0:
+                            coords.append(torch.tensor([i, j, k], dtype=torch.float64) - offset)
+                            feats.append(block_id.unsqueeze(-1))
+            if len(coords) > 0:
+                coords = torch.stack(coords)
+                feats = torch.stack(feats)
+                pcd.points = o3d.utility.Vector3dVector(coords)
+                pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(self.blocks_colorlist[feats[i]][:3]) for i in range(len(feats))]))
+                voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.9)
+                vis.add_geometry(voxel_grid)
+                ctr = vis.get_view_control()
+                ctr.convert_from_pinhole_camera_parameters(p_cam)
+                ctr.set_constant_z_far(3 * d)
+
+            out_image = np.asarray(vis.capture_screen_float_buffer(True))
+            vis.clear_geometries()
+            gif_images.append(out_image)
+        vis.close()
+        # Save observation gif if specified in config
+        imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=2)
+        pygifsicle.optimize(gif_filepath)
+        return
+
 
     def close(self):
         pass

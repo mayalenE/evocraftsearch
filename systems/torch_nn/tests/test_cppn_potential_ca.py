@@ -1,7 +1,6 @@
 from unittest import TestCase
-
 import torch.optim
-from addict import Dict
+from exputils.seeding import set_seed
 import neat
 import pytorchneat
 from evocraftsearch.systems import CppnPotentialCA
@@ -10,6 +9,8 @@ from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAIni
 class TestCppnPotentialCA(TestCase):
 
     def test_cppn_potential_ca(self):
+        set_seed(4)
+        torch.backends.cudnn.enabled = False
         ## Load System
         cppn_potential_ca_config = CppnPotentialCA.default_config()
         cppn_potential_ca_config.SX = 16
@@ -36,17 +37,21 @@ class TestCppnPotentialCA(TestCase):
                                           {'params': system.ca_step.K.parameters(), 'lr': 0.1},
                                           {'params': system.ca_step.T, 'lr': 0.1}
                                          ])
-            for optim_idx in range(10):
-                observations = system.run()
-                if ((observations.potentials[-1].argmax(-1)==desired_block_id).sum() == 0):
+
+            for optim_idx in range(1):
+                observations = system.run(render=False)
+                if system.is_dead:
                     break
-                loss = torch.nn.functional.cross_entropy(observations.potentials[-1].view(-1, system.n_blocks), desired_block_id*torch.ones(16*16*16, dtype=torch.long))
+                else:
+                    system.render_gif(observations.potentials, gif_filepath=f'creature_{creature_idx}.gif')
+                # if ((observations.potentials[-1].argmax(-1)==desired_block_id).sum() == 0):
+                #     break
+                loss = torch.nn.functional.cross_entropy(observations.potentials[-1].view(-1, system.n_blocks), desired_block_id*torch.ones(cppn_potential_ca_config.SX*cppn_potential_ca_config.SY*cppn_potential_ca_config.SZ, dtype=torch.long))
                 optimizer.zero_grad()
                 loss.backward()
-                print(loss, (system.potential[0,:,:,:,:].argmax(-1)==desired_block_id).sum())
-                if optim_idx == 0:
-                    for n,p in system.named_parameters():
-                        if p.grad is not None:
-                            print(n,p.grad.sum())
+                # print(loss, (system.potential[0,:,:,:,:].argmax(-1)==desired_block_id).sum())
+                # if optim_idx == 0:
+                #     for n,p in system.named_parameters():
+                #         if p.grad is not None:
+                #             print(n,p.grad.sum())
                 optimizer.step()
-                system.render()

@@ -113,13 +113,13 @@ class ExplorationDB:
         torch.save(save_dict, filepath)
 
     def save_observations_to_db(self, run_id):
-        # TODO: create an abstract observation class with a save method for observations that are not numpy array
         run_data = self.runs[run_id]
 
         filename = 'run_{:07d}_observations.pickle'.format(run_id)
         filepath = os.path.join(self.config.db_directory, filename)
 
         torch.save(run_data.observations, filepath)
+
 
     def load(self, run_ids=None, map_location="cpu"):
         """
