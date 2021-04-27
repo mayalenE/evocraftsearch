@@ -1,25 +1,33 @@
 # conda
 conda create -n autodisc python=3.8
 conda activate autodisc
-conda install -c anaconda  pip=21.0.1
+#conda install -c anaconda  pip=21.0.1
 conda install pytorch torchvision cudatoolkit=10.1.243 -c pytorch
 conda install -c conda-forge deap
-conda install -c conda-forge odfpy
+#conda install -c conda-forge odfpy
 conda install -c conda-forge addict
-conda install -c conda-forge ffmpeg
+#conda install -c conda-forge ffmpeg
 conda install -c conda-forge imageio
-conda install -c conda-forge python-graphviz
-conda install -c anaconda grpcio
-conda install -c conda-forge google-api-python-client
+# conda install -c conda-forge python-graphviz
+#conda install -c anaconda grpcio
+#conda install -c conda-forge google-api-python-client
+#conda install -c conda-forge tensorboard
+conda install -c conda-forge tensorboardx
+conda install -c conda-forge moviepy
+conda install -c conda-forge matplotlib
+# conda install -c anaconda h5py #for mnist3d but can probably do without
 
 ## pip
 pip install neat-python==0.92
 pip install tqdm
-pip install NBT
+
+
+
+# pip install NBT
 pip install pygifsicle #/!\ must also do sudo apt-get install gifsicle on Linux
 
 
-## Install MinkowskiEngine
+## Install MinkowskiEngine (can do without for now)
 conda install -c anaconda openblas-devel
 sudo apt install g++-7
 export CXX=/usr/bin/g++-7 #specify the gcc path. Make sure that it exists.
@@ -29,7 +37,7 @@ pip install -U git+https://github.com/NVIDIA/MinkowskiEngine -v --no-deps --inst
 ##  export PATH="/usr/local/cuda/bin:$PATH"
 ##  export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
-## Install open3D
+## Install open3D (install headless on jeanzay)
 conda install -c anaconda scikit-learn
 conda install -c anaconda pyyaml
 conda install -c anaconda pandas

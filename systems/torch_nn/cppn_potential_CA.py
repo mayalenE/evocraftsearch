@@ -21,9 +21,29 @@ def str_to_tuple_key(str_key):
 def tuple_to_str_key(tuple_key):
     return f"{tuple_key[0]}_{tuple_key[1]}"
 
+from evocraftsearch.evocraft import minecraft_pb2_grpc
+from evocraftsearch.evocraft.minecraft_pb2 import *
+
 """ =============================================================================================
 Initialization Space: 
 ============================================================================================= """
+class BiasedMultiBinarySpace(MultiBinarySpace):
+
+    def __init__(self, n, indpb_sample=1.0, indpb=1.0):
+
+        if type(n) in [tuple, list, torch.tensor]:
+            input_n = n
+        else:
+            input_n = (n,)
+        if isinstance(indpb_sample, numbers.Number):
+            indpb_sample = torch.full(input_n, indpb_sample, dtype=torch.float64)
+        self.indpb_sample = torch.as_tensor(indpb_sample, dtype=torch.float64)
+
+        MultiBinarySpace.__init__(self, n=n, indpb=indpb)
+
+    def sample(self):
+        return torch.bernoulli(self.indpb_sample).to(self.dtype)
+
 
 class CppnPotentialCAInitializationSpace(DictSpace):
 
@@ -32,10 +52,10 @@ class CppnPotentialCAInitializationSpace(DictSpace):
         self.n_blocks = n_blocks
         self.neat_config = neat_config
 
-        self.C = MultiBinarySpace(n=n_blocks-1, indpb=0.01)
+        self.C = BiasedMultiBinarySpace(n=n_blocks-1, indpb_sample=0.8, indpb=0.01)
         self.I = DictSpace(
                 cppn_genome=CPPNSpace(neat_config),
-                occupation_ratio=BoxSpace(low=0.2, high=0.4, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
+                occupation_ratio=BoxSpace(low=0.2, high=0.5, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
             )
 
     def sample(self):
@@ -109,24 +129,6 @@ class CppnPotentialCAInitializationSpace(DictSpace):
 Update Rule Space: 
 ============================================================================================= """
 
-class BiasedMultiBinarySpace(MultiBinarySpace):
-
-    def __init__(self, n, indpb_sample=1.0, indpb=1.0):
-
-        if type(n) in [tuple, list, torch.tensor]:
-            input_n = n
-        else:
-            input_n = (n,)
-        if isinstance(indpb_sample, numbers.Number):
-            indpb_sample = torch.full(input_n, indpb_sample, dtype=torch.float64)
-        self.indpb_sample = torch.as_tensor(indpb_sample, dtype=torch.float64)
-
-        MultiBinarySpace.__init__(self, n=n, indpb=indpb)
-
-    def sample(self):
-        return torch.bernoulli(self.indpb_sample).to(self.dtype)
-
-
 class CppnPotentialCAUpdateRuleSpace(Space):
 
     def __init__(self, n_blocks, neat_config):
@@ -134,7 +136,7 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         self.n_blocks = n_blocks
         self.neat_config = neat_config
 
-        self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=0.2, indpb=0.5, dtype=torch.float32)
+        self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=1.0, indpb=0.1, dtype=torch.float32)
 
         n_cross_channels = (self.n_blocks - 1) ** 2
         indpb_sample_cross_channels = []
@@ -142,20 +144,20 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
                 if c1 == c0: # higher sampling rate and lower mutation rate for channelwise kernels
-                    indpb_sample_cross_channels.append(1.0)
+                    indpb_sample_cross_channels.append(0.7)
                     indpb_mutate_cross_channels.append(0.05)
                 else:
-                    indpb_sample_cross_channels.append(0.1)
-                    indpb_mutate_cross_channels.append(0.1)
+                    indpb_sample_cross_channels.append(0.4)
+                    indpb_mutate_cross_channels.append(0.05)
 
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
 
         self.K = DictSpace(
-                R=DiscreteSpace(n=3, mutation_mean=0.0, mutation_std=0.5, indpb=0.5),
+                R=DiscreteSpace(n=3, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
                 cppn_genome=CPPNSpace(neat_config),
-                m=BoxSpace(low=0.1, high=0.5, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.5, dtype=torch.float32),
-                s=BoxSpace(low=0.001, high=0.2, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
-                h=BoxSpace(low=0.1, high=1.0, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.5, dtype=torch.float32),
+                m=BoxSpace(low=0.1, high=0.6, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
+                s=BoxSpace(low=0.001, high=0.2, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.1, dtype=torch.float32),
+                h=BoxSpace(low=0.1, high=0.9, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
             )
 
     def sample(self):
@@ -274,7 +276,7 @@ class CppnPotentialCAInitialization(torch.nn.Module):
             # the cppn generated output is confined to a limited space:
             c_output_size = tuple([int(s * I.occupation_ratio) for s in output_size[:-1]])
             c_cppn_input = pytorchneat.utils.create_image_cppn_input(c_output_size, is_distance_to_center=True, is_bias=True)
-            c_cppn_output = (self.max_potential - self.max_potential * I.cppn_net.activate(c_cppn_input, 3).abs()).squeeze() # TODO: config cppn_n_passes
+            c_cppn_output = (self.max_potential - self.max_potential * I.cppn_net.activate(c_cppn_input, 3).abs()).squeeze(-1) # TODO: config cppn_n_passes
             offset_X = floor((output_size[0] - c_cppn_output.shape[0]) / 2)
             offset_Y = floor((output_size[1] - c_cppn_output.shape[1]) / 2)
             offset_Z = floor((output_size[2] - c_cppn_output.shape[2]) / 2)
@@ -297,8 +299,10 @@ class CppnPotentialCAStep(torch.nn.Module):
         self.register_parameter('T', torch.nn.Parameter(T))
         self.register_kernels(K)
 
-        self.gfunc = lambda n, m, s: torch.exp(- (n - m) ** 2 / (2 * s ** 2)) * 2 - 1
         self.max_potential = max_potential
+
+    def gfunc(self, n, m, s):
+        return torch.exp(- (n - m) ** 2 / (2 * s ** 2)) * 2 - 1
 
     def register_kernels(self, K):
         self.K = torch.nn.Module()
@@ -333,7 +337,7 @@ class CppnPotentialCAStep(torch.nn.Module):
                 padded_input = K.pad(input[:, :, :, :, c0]).unsqueeze(0)
                 #padded_input = input[:, :, :, :, c0].unsqueeze(0)
             potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key])  # TODO: spherical padding or not?
-            # potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key], padding=int(K.R.item()))
+            #potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key], padding=int(K.R.item()))
             delta_field_c1 = self.gfunc(potential, K.m, K.s).squeeze(1)
             field[:, :, :, :, c1] = field[:, :, :, :, c1] + K.h * delta_field_c1
 
@@ -341,6 +345,10 @@ class CppnPotentialCAStep(torch.nn.Module):
         output_potential = torch.clamp(input + (1.0 / self.T) * field, min=0.0, max=self.max_potential)
 
         return output_potential
+
+
+def all_orientations(args):
+    pass
 
 
 class CppnPotentialCA(System, torch.nn.Module):
@@ -351,7 +359,7 @@ class CppnPotentialCA(System, torch.nn.Module):
         default_config.SX = 16
         default_config.SY = 16
         default_config.SZ = 16
-        default_config.block_list = ['AIR', 'CLAY', 'SLIME', 'PISTON', 'STICKY_PISTON', 'REDSTONE_BLOCK'] # block 0 is always air
+        default_config.blocks_list = ['AIR', 'CLAY', 'SLIME', 'PISTON', 'STICKY_PISTON', 'REDSTONE_BLOCK'] # block 0 is always air
         default_config.final_step = 10
 
         default_config.air_potential = 0.1
@@ -363,9 +371,9 @@ class CppnPotentialCA(System, torch.nn.Module):
         System.__init__(self, config=config, device=device, **kwargs)
         torch.nn.Module.__init__(self)
 
-        self.n_blocks = len(self.config.block_list)
-        assert self.config.block_list[0] == 'AIR'
-        self.blocks_colorlist = get_minecraft_color_list(self.config.block_list)
+        self.n_blocks = len(self.config.blocks_list)
+        assert self.config.blocks_list[0] == 'AIR'
+        self.blocks_colorlist = get_minecraft_color_list(self.config.blocks_list)
 
         self.device = device
 
@@ -477,8 +485,6 @@ class CppnPotentialCA(System, torch.nn.Module):
 
             # run system
             observations = self.run()
-            if self.is_dead:
-                break
 
             # compute error between reached_goal and target_goal
             loss = loss_func(observations)
@@ -494,9 +500,17 @@ class CppnPotentialCA(System, torch.nn.Module):
 
             train_losses.append(loss.item())
 
-        # gather back the trained parameters
-        self.update_initialization_parameters()
-        self.update_update_rule_parameters()
+            if loss.item() < old_loss:
+                # update policy parameters as lead to the better results
+                self.update_initialization_parameters()
+                self.update_update_rule_parameters()
+
+            if self.is_dead:
+                # restart optimisation from slightly mutated params
+                policy_parameters = Dict()
+                policy_parameters['initialization'] = self.initialization_parameters
+                policy_parameters['update_rule'] = self.update_rule_parameters
+                self.reset(policy_parameters)
 
         return train_losses
 
@@ -552,8 +566,8 @@ class CppnPotentialCA(System, torch.nn.Module):
 
     def render(self, mode="human"):
         visible = False
-        if mode=="human":
-            visible=True
+        if mode == "human":
+            visible = True
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery',800, 800, visible=visible)
         pcd = o3d.geometry.PointCloud()
@@ -599,7 +613,35 @@ class CppnPotentialCA(System, torch.nn.Module):
         else:
             raise NotImplementedError
 
-    def render_gif(self, potentials, gif_filepath):
+    @staticmethod
+    def render_slices_gif(potential, gif_filepath, blocks_colorlist, slice_along="y"):
+        SX, SY, SZ, n_channels = potential.shape
+        discrete_potential = potential.cpu().detach().argmax(-1)
+        gif_images = []
+        if slice_along == "x":
+            for i in range(SX):
+                im = discrete_potential[i, :, :]
+                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                gif_images.append(im.type(torch.uint8))
+        elif slice_along == "y":
+            for j in range(SY):
+                im = discrete_potential[:, j, :]
+                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                gif_images.append(im.type(torch.uint8))
+        elif slice_along == "z":
+            for k in range(SZ):
+                im = discrete_potential[:, :, k]
+                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                gif_images.append(im.type(torch.uint8))
+        else:
+            raise NotImplementedError
+        # Save observation gif if specified in config
+        imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=2)
+        pygifsicle.optimize(gif_filepath)
+        return
+
+    @staticmethod
+    def render_traj_gif(potentials, gif_filepath, blocks_colorlist):
         t, SX, SY, SZ, n_channels = potentials.shape
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery Gif', 800, 800, visible=False)
@@ -630,20 +672,63 @@ class CppnPotentialCA(System, torch.nn.Module):
                 coords = torch.stack(coords)
                 feats = torch.stack(feats)
                 pcd.points = o3d.utility.Vector3dVector(coords)
-                pcd.colors = o3d.utility.Vector3dVector(torch.stack([torch.tensor(self.blocks_colorlist[feats[i]][:3]) for i in range(len(feats))]))
-                voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.9)
+                pcd.colors = o3d.utility.Vector3dVector(torch.stack([blocks_colorlist[feats[i]][:3] for i in range(len(feats))]))
+                voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
                 vis.add_geometry(voxel_grid)
                 ctr = vis.get_view_control()
                 ctr.convert_from_pinhole_camera_parameters(p_cam)
-                ctr.set_constant_z_far(3 * d)
+                ctr.set_constant_z_far(2 * d)
 
-            out_image = np.asarray(vis.capture_screen_float_buffer(True))
+            out_image = (np.asarray(vis.capture_screen_float_buffer(True))*255.0).astype(np.uint8)
             vis.clear_geometries()
             gif_images.append(out_image)
         vis.close()
         # Save observation gif if specified in config
         imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=2)
         pygifsicle.optimize(gif_filepath)
+        return
+
+    @staticmethod
+    def render_traj_in_minecraft(potentials, client, arena_bbox, blocks_list):
+        t, SX, SY, SZ, n_channels = potentials.shape
+        for potential in potentials:
+            cur_potential = potential.cpu().detach()
+            coords = []
+            feats = []
+            for i in range(SX):
+                for j in range(SY):
+                    for k in range(SZ):
+                        block_id = cur_potential[i, j, k].cpu().detach().argmax()
+                        if block_id > 0:
+                            coords.append(torch.tensor([i, j, k], dtype=torch.float64))
+                            feats.append(block_id)
+            if len(coords) > 0:
+                blocks = []
+                for block_idx, block_pos in enumerate(coords):
+                    # translate block pos to fit in area
+                    world_x = int(block_pos[0] + arena_bbox[0])
+                    world_y = int(block_pos[1] + arena_bbox[1])
+                    world_z = int(block_pos[2] + arena_bbox[2])
+
+                    if (world_x < arena_bbox[0] + arena_bbox[3]) and (world_y < arena_bbox[1] + arena_bbox[4]) and (
+                            world_z < arena_bbox[2] + arena_bbox[5]):
+                        cur_pos = Point(x=world_x, y=world_y, z=world_z)
+                        cur_block = Block(position=cur_pos, type=blocks_list[feats[block_idx]], orientation='NORTH')
+                        blocks.append(cur_block)
+
+                # Clear the necessary working area
+                client.fillCube(FillCubeRequest(
+                    cube=Cube(
+                        min=Point(x=arena_bbox[0], y=arena_bbox[1], z=arena_bbox[2]),
+                        max=Point(x=arena_bbox[0] + arena_bbox[3] - 1, y=arena_bbox[1] + arena_bbox[4] - 1,
+                                  z=arena_bbox[2] + arena_bbox[5] - 1)
+                    ),
+                    type=AIR
+                ))
+
+                # Draw the loaded blocks
+                client.spawnBlocks(Blocks(blocks=blocks))
+
         return
 
 

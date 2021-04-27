@@ -2,6 +2,7 @@
 *.idea/
 */tests/run_*
 */tests/*.pickle
+*/tests/training/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

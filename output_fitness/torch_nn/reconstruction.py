@@ -1,5 +1,4 @@
 from evocraftsearch import OutputFitness
-import torch
 import torch.nn.functional as F
 
 class ReconstructionFitness(OutputFitness):
