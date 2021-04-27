@@ -9,22 +9,6 @@ from addict import Dict
 from tqdm import tqdm
 
 
-class RunDataEntry(Dict):
-    """
-    Class that specify for RunData entry in the DB
-    """
-
-    def __init__(self, db, id, policy_parameters, observations, **kwargs):
-        """
-        :param kwargs: flexible structure of the entry which might contain additional columns (eg: source_policy_idx, target_goal, etc.)
-        """
-        super().__init__(**kwargs)
-        self.db = db
-        self.id = id
-        self.policy_parameters = policy_parameters
-        self.observations = observations
-
-
 class ExplorationDB:
     """
     Base of all Database classes.
@@ -61,8 +45,7 @@ class ExplorationDB:
 
     def add_run_data(self, id, policy_parameters, observations, **kwargs):
 
-        run_data_entry = RunDataEntry(db=self, id=id, policy_parameters=policy_parameters, observations=observations,
-                                      **kwargs)
+        run_data_entry = Dict(db=self, id=id, policy_parameters=policy_parameters, observations=observations, **kwargs)
         if id not in self.run_ids:
             self.add_run_data_to_memory(id, run_data_entry)
             self.run_ids.add(id)
@@ -190,7 +173,7 @@ class ExplorationDB:
                 observations = None
 
             # create run data and add it to memory
-            run_data = RunDataEntry(self, observations=observations, **run_data_kwargs)
+            run_data = Dict(self, observations=observations, **run_data_kwargs)
             self.add_run_data_to_memory(run_id, run_data)
 
             if not self.config.keep_saved_runs_in_memory:
