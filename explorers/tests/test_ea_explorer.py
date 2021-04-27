@@ -1,5 +1,4 @@
 from unittest import TestCase
-from addict import Dict
 import neat
 import pytorchneat
 from evocraftsearch.systems import CppnPotentialCA
@@ -43,7 +42,7 @@ class TestEAExplorer(TestCase):
         cppn_potential_ca_config.SY = SY
         cppn_potential_ca_config.SZ = SZ
         cppn_potential_ca_config.final_step = 20
-        cppn_potential_ca_config.block_list = block_list
+        cppn_potential_ca_config.blocks_list = block_list
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                   neat.DefaultReproduction,
@@ -51,8 +50,8 @@ class TestEAExplorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.block_list), neat_config)
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.block_list), neat_config)
+        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
         system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
         system.potential = target.unsqueeze(0)

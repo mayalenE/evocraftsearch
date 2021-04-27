@@ -63,7 +63,6 @@ class EAExplorer(Explorer):
         if isinstance(self.system, torch.nn.Module) and self.config.fitness_optim_steps > 0:
 
             train_losses = self.system.optimize(self.config.fitness_optim_steps, lambda obs: - self.output_fitness.calc(obs))
-            print(train_losses)
             ind_policy['initialization'] = self.system.initialization_parameters
             ind_policy['update_rule'] = self.system.update_rule_parameters
 
