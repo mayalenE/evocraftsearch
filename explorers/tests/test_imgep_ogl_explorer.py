@@ -1,52 +1,57 @@
 from unittest import TestCase
-from addict import Dict
+import torch
 import neat
 import pytorchneat
-from evocraftsearch.systems import Lenia
-from evocraftsearch.systems.lenia import LeniaInitializationSpace, LeniaUpdateRuleSpace
+from evocraftsearch.systems import CppnPotentialCA
+from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAUpdateRuleSpace
 from evocraftsearch import ExplorationDB
+from exputils.seeding import set_seed
 from image_representation import VAE
 from evocraftsearch.explorers import IMGEP_OGL_Explorer, TorchNNBoxGoalSpace
 
 
 class TestIMGEP_OGL_Explorer(TestCase):
     def test_imgep_ogl_explorer(self):
+        set_seed(1)
+        torch.backends.cudnn.enabled = False  # Somehow cudnn decrease performances in our case :O
 
-        # Load System: here lenia
-        lenia_config = Lenia.default_config()
-        lenia_config.SX = 256
-        lenia_config.SY = 256
-        lenia_config.final_step = 100
-        lenia_config.version = 'pytorch_fft'
+        # Load System
+        cppn_potential_ca_config = CppnPotentialCA.default_config()
+        cppn_potential_ca_config.SX = 16
+        cppn_potential_ca_config.SY = 16
+        cppn_potential_ca_config.SZ = 16
+        cppn_potential_ca_config.final_step = 40
 
-        initialization_space_config = Dict()
-        initialization_space_config.cppn_n_passes = 4
-        initialization_space_config.neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
-                                                              neat.DefaultReproduction,
-                                                              neat.DefaultSpeciesSet,
-                                                              neat.DefaultStagnation,
-                                                              '/home/mayalen/code/my_packages/evocraftsearch/systems/tests/test_neat_lenia_input.cfg'
-                                                              )
-        initialization_space = LeniaInitializationSpace(config=initialization_space_config)
-
-        system = Lenia(initialization_space=initialization_space, config=lenia_config, device='cuda')
+        neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
+                                  neat.DefaultReproduction,
+                                  neat.DefaultSpeciesSet,
+                                  neat.DefaultStagnation,
+                                  'template_neat_cppn.cfg'
+                                  )
+        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
+                                 config=cppn_potential_ca_config, device='cuda')
 
         # Load ExplorationDB
         db_config = ExplorationDB.default_config()
         db_config.db_directory = '.'
         db_config.save_observations = True
+        db_config.save_gifs = True
         db_config.load_observations = True
         exploration_db = ExplorationDB(config=db_config)
 
         # Load Imgep Explorer
         ## Load Goal Space Representation
         vae_config = VAE.default_config()
-        vae_config.network.parameters.input_size = (system.config.SX, system.config.SY)
+        vae_config.network.parameters.input_size = (system.config.SZ, system.config.SY, system.config.SX)
         vae_config.network.parameters.n_latents = 16
-        vae_config.network.parameters.n_conv_layers = 4
-        vae_config.network.parameters.feature_layer = 2
+        vae_config.network.parameters.n_channels = system.n_blocks
+        vae_config.network.parameters.n_conv_layers = 2
+        vae_config.network.parameters.feature_layer = 1
         vae_config.network.parameters.encoder_conditional_type = "gaussian"
         vae_config.network.weights_init.name = "pytorch"
+        vae_config.device = 'cuda'
         vae_config.loss.name = "VAE"
         vae_config.loss.parameters.reconstruction_dist = "bernoulli"
         vae_config.optimizer.name = "Adam"
@@ -63,12 +68,8 @@ class TestIMGEP_OGL_Explorer(TestCase):
         ## Load imgep explorer
         explorer_config = IMGEP_OGL_Explorer.default_config()
         explorer_config.num_of_random_initialization = 30
-        explorer_config.reach_goal_optimizer = Dict()
-        explorer_config.reach_goal_optimizer.optim_steps = 50
-        explorer_config.reach_goal_optimizer.name = "Adam"
-        explorer_config.reach_goal_optimizer.initialization_cppn.parameters.lr = 1e-2
-        explorer_config.reach_goal_optimizer.lenia_step.parameters.lr = 1e-3
-        explorer_config.goalspace_training.dataset_augment = False
+        explorer_config.reach_goal_optim_steps = 20
+        explorer_config.goalspace_training.dataset_augment = True
         explorer_config.goalspace_training.train_batch_size = 64
         explorer_config.goalspace_training.valid_batch_size = 32
         explorer_config.goalspace_training.frequency = 40
@@ -78,7 +79,7 @@ class TestIMGEP_OGL_Explorer(TestCase):
         explorer = IMGEP_OGL_Explorer(system, exploration_db, goal_space, config=explorer_config)
 
         # Run Imgep Explorer
-        explorer.run(200)
+        explorer.run(10)
 
         # # save
         # explorer.save('explorer.pickle')

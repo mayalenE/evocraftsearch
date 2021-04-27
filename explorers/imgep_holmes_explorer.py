@@ -2,62 +2,97 @@ import torch
 import random
 from addict import Dict
 from evocraftsearch import Explorer
-from evocraftsearch.spaces import BoxSpace
-from evocraftsearch.utils import sample_value
+from evocraftsearch.spaces import BoxSpace, DictSpace
+from evocraftsearch.utils import sample_value, map_nested_dicts, map_nested_dicts_modify, map_nested_dicts_modify_with_other
 from image_representation.datasets.torch_dataset import EvocraftDataset
 from torch.utils.data import DataLoader, WeightedRandomSampler
 import numbers
 from tqdm import tqdm
 import os
 
-class TorchNNBoxGoalSpace(BoxSpace):
-    def __init__(self, representation, autoexpand=True, low=0., high=0., shape=None, dtype=torch.float32):
+class HolmesGoalSpace(DictSpace):
+
+    @staticmethod
+    def default_config():
+        default_config = Dict()
+
+        # niche selection
+        default_config.niche_selection.type = 'random'
+
+        # goal selection
+        default_config.goal_selection.type = 'random'
+
+        return default_config
+
+    def __init__(self, representation, autoexpand=True, low=0., high=0., shape=None, dtype=torch.float32, config={}, **kwargs):
         """
-        representation: TorchNN Image Representation, we wrap here its main function
+        representation: TorchNN Holmes Image Representation  a flat dictionary with node's keys, we wrap here its main function
         """
+        self.config = self.__class__.default_config()
+        self.config.update(config)
+        self.config.update(kwargs)
+
         self.representation = representation
         self.autoexpand = autoexpand
+
         if shape is not None:
             if isinstance(shape, list) or isinstance(shape, tuple):
                 assert len(shape) == 1 and shape[0] == self.representation.n_latents
             elif isinstance(shape, numbers.Number):
                 assert shape == self.representation.n_latents
-        BoxSpace.__init__(self, low=low, high=high, shape=(self.representation.n_latents,), dtype=dtype)
+
+        spaces = Dict.fromkeys(representation.network.get_leaf_pathes(), BoxSpace(low=low, high=high, shape=(representation.n_latents,), dtype=dtype))
+        DictSpace.__init__(self, spaces=spaces)
+
+    def update(self):
+        if self.representation.network.get_leaf_pathes() != list(self.spaces.keys()):
+            self.spaces = Dict()
+            for leaf_path in self.representation.network.get_leaf_pathes():
+                self.spaces[leaf_path] = BoxSpace(low=0., high=0.0, shape=(self.representation.network.get_child_node(leaf_path).n_latents, ), dtype=torch.float32)
 
     def map(self, observations, preprocess=None, **kwargs):
         last_potential = observations.potentials[-1].permute(3,2,1,0).unsqueeze(0)
         if preprocess is not None:
             last_potential = preprocess(last_potential)
-        embedding = self.representation.calc_embedding(last_potential).squeeze()
+        embedding = self.representation.calc_embedding(last_potential, mode="exhaustif")
+        map_nested_dicts_modify(embedding, lambda z: z.squeeze())
 
         if self.autoexpand:
-            embedding_c = embedding.cpu().detach()
-            is_nan_mask = torch.isnan(embedding_c)
-            if is_nan_mask.sum() > 0:
-                embedding_c[is_nan_mask] = self.low[is_nan_mask]
-                self.low = torch.min(self.low, embedding_c)
-                embedding_c[is_nan_mask] = self.high[is_nan_mask]
-                self.high = torch.max(self.high, embedding_c)
-            else:
-                self.low = torch.min(self.low, embedding_c)
-                self.high = torch.max(self.high, embedding_c)
+            new_embedding = map_nested_dicts(embedding, lambda z: z.cpu().detach())
+            for node_path, space in self.spaces.items():
+                node_embedding = new_embedding[node_path]
+                is_nan_mask = torch.isnan(node_embedding)
+                node_embedding[is_nan_mask] = space.low[is_nan_mask]
+                space.low = torch.min(space.low, node_embedding)
+                node_embedding[is_nan_mask] = space.high[is_nan_mask]
+                space.high = torch.max(space.high, node_embedding)
 
         return embedding
 
+
     def calc_distance(self, embedding_a, embedding_b, **kwargs):
-        calc_dist_op = getattr(self.representation, "calc_distance", None)
-        if callable(calc_dist_op):
-            return self.representation.calc_distance(embedding_a, embedding_b, **kwargs)
-        else:
-            #L2 by default
-            dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
-            return dist
+        #L2 by default
+        dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
+        return dist
+
 
     def sample(self):
-        return BoxSpace.sample(self).to(self.representation.config.device)
+        if self.config.niche_selection.type == 'random':
+            node_path = random.choice(list(self.spaces.keys()))
+            space = self.spaces[node_path]
+        else:
+            raise NotImplementedError
+
+        if self.config.goal_selection.type == 'random':
+            goal = space.sample().to(self.representation.config.device)
+
+        else:
+            raise NotImplementedError
+
+        return node_path, goal
 
 
-class IMGEP_OGL_Explorer(Explorer):
+class IMGEP_HOLMES_Explorer(Explorer):
     """
     Basic explorer that samples goals in a goalspace and uses a policy library to generate parameters to reach the goal.
     """
@@ -83,7 +118,7 @@ class IMGEP_OGL_Explorer(Explorer):
         default_config.goalspace_preprocess = None
 
         default_config.goalspace_training = Dict()
-        default_config.goalspace_training.dataset_append_trajectory = False #True: loads all states (in time), False: loads only last state
+        default_config.goalspace_training.dataset_append_trajectory = False  # True: loads all states (in time), False: loads only last state
         default_config.goalspace_training.dataset_augment = True
         default_config.goalspace_training.dataset_preprocess = None
         default_config.goalspace_training.train_batch_size = 64
@@ -91,6 +126,17 @@ class IMGEP_OGL_Explorer(Explorer):
         default_config.goalspace_training.frequency = 100
         default_config.goalspace_training.n_epochs = 100 #train n_epochs epochs every frequency runs
         default_config.goalspace_training.importance_sampling_last = 0.3 # importance of the last <frequency> runs when training representation
+
+        default_config.goalspace_training.split_trigger.active = True
+        default_config.goalspace_training.split_trigger.fitness_key = 'recon'
+        default_config.goalspace_training.split_trigger.type = 'plateau'
+        default_config.goalspace_training.split_trigger.parameters = Dict(epsilon=20, n_steps_average=50)
+        default_config.goalspace_training.split_trigger.conditions = Dict(min_init_n_epochs=2000, n_min_points=500, n_max_splits=10, n_epochs_min_between_splits=200)
+        default_config.goalspace_training.split_trigger.save_model_before_after = True
+        default_config.goalspace_training.split_trigger.boundary_config.z_fitness = "recon_loss"
+        default_config.goalspace_training.split_trigger.boundary_config.algo = "cluster.KMeans"
+        default_config.goalspace_training.alternated_backward.active = True
+        default_config.goalspace_training.alternated_backward.ratio_epochs = {"connections": 2, "core": 8}
 
 
         return default_config
@@ -104,13 +150,15 @@ class IMGEP_OGL_Explorer(Explorer):
         self.policy_library = []
 
         # initialize goal library
-        self.goal_library = torch.empty((0,) + self.goal_space.shape)
+        self.goal_library = Dict()
+        self.goal_library["0"] = torch.empty((0,) + self.goal_space.spaces["0"].shape)
 
-    def get_source_policy_idx(self, target_goal):
+
+    def get_source_policy_idx(self, target_space, target_goal):
 
         if self.config.source_policy_selection.type == 'optimal':
             # get distance to other goals
-            goal_distances = self.goal_space.calc_distance(target_goal, self.goal_library)
+            goal_distances = self.goal_space.calc_distance(target_goal, self.goal_library[target_space])
 
             # select goal with minimal distance
             isnan_distances = torch.isnan(goal_distances)
@@ -118,11 +166,10 @@ class IMGEP_OGL_Explorer(Explorer):
             source_policy_idx = random.choice(canditates)
 
         elif self.config.source_policy_selection.type == 'random':
-            source_policy_idx = sample_value(('discrete', 0, len(self.goal_library) - 1))
+            source_policy_idx = sample_value(('discrete', 0, len(self.goal_library[target_space]) - 1))
 
         else:
-            raise ValueError('Unknown source policy selection type {!r} in the configuration!'.format(
-                self.config.source_policy_selection.type))
+            raise ValueError('Unknown source policy selection type {!r} in the configuration!'.format(self.config.source_policy_selection.type))
 
         return source_policy_idx
 
@@ -148,30 +195,29 @@ class IMGEP_OGL_Explorer(Explorer):
 
             # recreate train/valid datasets from saved exploration_db
             for run_idx, run_data in self.db.runs.items():
-                # only add non-dead data
                 if self.config.goalspace_training.dataset_append_trajectory:
                     timepoints_to_add = list(range(run_data.observations.potentials))
                 else:
                     timepoints_to_add = [-1]
+
                 for timepoint in timepoints_to_add:
-                    potential = run_data.observations.potentials[timepoint].permute(3,2,1,0)
+                    potential = run_data.observations.potentials[timepoint].permute(3, 2, 1, 0)
                     discrete_potential = potential.detach().argmax(0)
                     is_dead = torch.all(discrete_potential.eq(discrete_potential[0, 0, 0]))
                     if not is_dead:
-                        if not is_dead:
-                            if (train_loader.dataset.n_images + valid_loader.dataset.n_images) % 10 == 0:
-                                valid_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype),
-                                                         torch.tensor([0]).unsqueeze(0))
-                            else:
-                                train_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype),
-                                                         torch.tensor([0]).unsqueeze(0))
+                        if (train_loader.dataset.n_images + valid_loader.dataset.n_images) % 10 == 0:
+                            valid_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype), torch.tensor([0]).unsqueeze(0))
+                        else:
+                            train_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype), torch.tensor([0]).unsqueeze(0))
+
 
         else:
             self.policy_library = []
-            self.goal_library = torch.empty((0,) + self.goal_space.shape)
+            self.goal_library = Dict()
+            self.goal_library["0"] = torch.empty((0,) + self.goal_space.spaces["0"].shape)
             run_idx = 0
 
-        self.goal_library = self.goal_library.to(self.goal_space.representation.config.device)
+        map_nested_dicts_modify(self.goal_library, lambda node_goal_library: node_goal_library.to(self.goal_space.representation.config.device))
 
 
         while run_idx < n_exploration_runs:
@@ -196,10 +242,10 @@ class IMGEP_OGL_Explorer(Explorer):
             else:
 
                 # sample a goal space from the goal space
-                target_goal = self.goal_space.sample()  # provide the explorer to sampling function if needed (ef: for sampling in less dense region we need access to self.goal_library, etc)
+                target_space, target_goal = self.goal_space.sample()  # provide the explorer to sampling function if needed (ef: for sampling in less dense region we need access to self.goal_library, etc)
 
                 # get source policy which should be mutated
-                source_policy_idx = self.get_source_policy_idx(target_goal)
+                source_policy_idx = self.get_source_policy_idx(target_space, target_goal)
                 source_policy = self.policy_library[source_policy_idx]
 
                 # apply a mutation
@@ -209,8 +255,7 @@ class IMGEP_OGL_Explorer(Explorer):
                 # Optimization toward target goal
                 if isinstance(self.system, torch.nn.Module) and self.config.reach_goal_optim_steps > 0:
                     train_losses = self.system.optimize(self.config.reach_goal_optim_steps,
-                                                        lambda obs: self.goal_space.calc_distance(target_goal,
-                                                                                                  self.goal_space.map(obs, preprocess=self.config.goalspace_preprocess)))
+                                                        lambda obs: self.goal_space.calc_distance(target_goal, self.goal_space.map(obs, preprocess=self.config.goalspace_preprocess)[target_space]))
                     print(train_losses)
                     policy_parameters['initialization'] = self.system.initialization_parameters
                     policy_parameters['update_rule'] = self.system.update_rule_parameters
@@ -218,7 +263,7 @@ class IMGEP_OGL_Explorer(Explorer):
                 with torch.no_grad():
                     observations = self.system.run()
                     reached_goal = self.goal_space.map(observations, preprocess=self.config.goalspace_preprocess)
-                    loss = self.goal_space.calc_distance(target_goal, reached_goal)
+                    loss = self.goal_space.calc_distance(target_goal, reached_goal[target_space])
                     dist_to_target = loss.item()
 
             # save results
@@ -241,12 +286,10 @@ class IMGEP_OGL_Explorer(Explorer):
                                               blocks_colorlist=self.system.blocks_colorlist, slice_along="z")
 
 
-
-
             # add policy and reached goal into the libraries
             # do it after the run data is saved to not save them if there is an error during the saving
             self.policy_library.append(policy_parameters)
-            self.goal_library = torch.cat([self.goal_library, reached_goal.reshape(1, -1).detach()])
+            map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat([ob1, ob2.reshape(1, -1).detach()]))
 
             # append new discovery to train/valid dataset
             if self.config.goalspace_training.dataset_append_trajectory:
@@ -259,14 +302,10 @@ class IMGEP_OGL_Explorer(Explorer):
                 discrete_potential = potential.detach().argmax(0)
                 is_dead = torch.all(discrete_potential.eq(discrete_potential[0, 0, 0]))
                 if not is_dead:
-                    if not is_dead:
-                        if (train_loader.dataset.n_images + valid_loader.dataset.n_images) % 10 == 0:
-                            valid_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype),
-                                                     torch.tensor([0]).unsqueeze(0))
-                        else:
-                            train_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype),
-                                                     torch.tensor([0]).unsqueeze(0))
-
+                    if (train_loader.dataset.n_images + valid_loader.dataset.n_images) % 10 == 0:
+                        valid_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype), torch.tensor([0]).unsqueeze(0))
+                    else:
+                        train_loader.dataset.add(potential.unsqueeze(0).cpu().detach().type(self.goal_space.representation.config.dtype), torch.tensor([0]).unsqueeze(0))
 
 
             # training stage
@@ -294,11 +333,18 @@ class IMGEP_OGL_Explorer(Explorer):
                                               'stage_{:06d}_weight_model.pth'.format(stage_idx))
                 self.goal_space.representation.save(representation_filepath)
 
-                # Update goal library (and goal space extent when autoexpand)
+                # Update goal space and goal library
+                self.goal_space.update() # if holmes has splitted will update goal space keys accordingly
                 self.goal_space.representation.eval()
+                ## update library and goal space extent with discoveries projected with the updated representation
+                if list(self.goal_space.spaces.keys()) != list(self.goal_library.keys()):
+                    self.goal_library = Dict()
+                    for node_path, space in self.goal_space.spaces.items():
+                        self.goal_library[node_path] = torch.empty((0,) + space.shape)
                 with torch.no_grad():
                     for old_run_idx in range(len(self.goal_library)):
-                        self.goal_library[old_run_idx] = self.goal_space.map(self.db.runs[old_run_idx].observations, preprocess=self.config.goalspace_preprocess).detach()
+                        reached_goal = self.goal_space.map(self.db.runs[old_run_idx].observations, preprocess=self.config.goalspace_preprocess)
+                        map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat([ob1[:old_run_idx], ob2.reshape(1, -1).detach(), ob1[old_run_idx+1:]]))
 
             # increment run_idx
             run_idx += 1

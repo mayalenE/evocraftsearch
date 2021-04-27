@@ -1,4 +1,6 @@
 import torch
+import random
+import os
 from addict import Dict
 from evocraftsearch import Explorer
 from evocraftsearch.spaces import BoxSpace
@@ -59,11 +61,7 @@ class IMGEPExplorer(Explorer):
         default_config.source_policy_selection.type = 'optimal'  # either: 'optimal', 'random'
 
         # Opt: Optimizer to reach goal
-        default_config.reach_goal_optimizer = Dict()
-        default_config.reach_goal_optimizer.optim_steps = 10
-        default_config.reach_goal_optimizer.name = "Adam"
-        default_config.reach_goal_optimizer.initialization_cppn.parameters.lr =  1e-3
-        default_config.reach_goal_optimizer.potential_ca_step.K.parameters.lr = 1e-2
+        default_config.reach_goal_optim_steps = 10
 
         return default_config
 
@@ -78,8 +76,6 @@ class IMGEPExplorer(Explorer):
         # initialize goal library
         self.goal_library = torch.empty((0,) + self.goal_space.shape)
 
-        # reach goal optimizer
-        self.reach_goal_optimizer = None
 
     def get_source_policy_idx(self, target_goal):
 
@@ -88,7 +84,9 @@ class IMGEPExplorer(Explorer):
             goal_distances = self.goal_space.calc_distance(target_goal, self.goal_library)
 
             # select goal with minimal distance
-            source_policy_idx = torch.argmin(goal_distances)
+            isnan_distances = torch.isnan(goal_distances)
+            canditates = torch.where(goal_distances == goal_distances[~isnan_distances].min())[0]
+            source_policy_idx = random.choice(canditates)
 
         elif self.config.source_policy_selection.type == 'random':
             source_policy_idx = sample_value(('discrete', 0, len(self.goal_library) - 1))
@@ -112,19 +110,14 @@ class IMGEPExplorer(Explorer):
             run_idx = 0
         while run_idx < n_exploration_runs:
 
-            policy_parameters = Dict.fromkeys(
-                ['initialization', 'update_rule'])  # policy parameters (output of IMGEP policy)
-
             # Initial Random Sampling of Parameters
             if len(self.policy_library) < self.config.num_of_random_initialization:
 
                 target_goal = None
                 source_policy_idx = None
 
-                policy_parameters['initialization'] = self.system.initialization_space.sample()
-                policy_parameters['update_rule'] = self.system.update_rule_space.sample()
-                self.system.reset(initialization_parameters=policy_parameters['initialization'],
-                                  update_rule_parameters=policy_parameters['update_rule'])
+                policy_parameters = self.system.sample_policy_parameters()
+                self.system.reset(policy=policy_parameters)
 
                 with torch.no_grad():
                     observations = self.system.run()
@@ -144,54 +137,21 @@ class IMGEPExplorer(Explorer):
                 source_policy = self.policy_library[source_policy_idx]
 
                 # apply a mutation
-                policy_parameters['initialization'] = self.system.initialization_space.mutate(source_policy['initialization'])
-                policy_parameters['update_rule'] = self.system.update_rule_space.mutate(source_policy['update_rule'])
-                self.system.reset(initialization_parameters=policy_parameters['initialization'],
-                                  update_rule_parameters=policy_parameters['update_rule'])
+                policy_parameters = self.system.mutate_policy_parameters(source_policy)
+                self.system.reset(policy=policy_parameters)
 
                 # Optimization toward target goal
-                if isinstance(self.system, torch.nn.Module) and self.config.reach_goal_optimizer.optim_steps > 0:
+                if isinstance(self.system, torch.nn.Module) and self.config.reach_goal_optim_steps > 0:
 
-                    optimizer_class = eval(f'torch.optim.{self.config.reach_goal_optimizer.name}')
-                    self.reach_goal_optimizer = optimizer_class([{'params': self.system.initialization_cppn.parameters(), **self.config.reach_goal_optimizer.initialization_cppn.parameters},
-                                                                {'params': self.system.potential_ca_step.K.parameters(), **self.config.reach_goal_optimizer.potential_ca_step.K.parameters}],
-                                                                **self.config.reach_goal_optimizer.parameters
-                                                                )
-                    for optim_step_idx in tqdm(range(1, self.config.reach_goal_optimizer.optim_steps)):
-
-                        print(f'Run {run_idx}, optimisation toward goal: ')
-
-                        # run system with IMGEP's policy parameters
-                        observations = self.system.run()
-                        reached_goal = self.goal_space.map(observations)
-
-                        # compute error between reached_goal and target_goal
-                        loss = self.goal_space.calc_distance(target_goal, reached_goal)
-                        print(f'step {optim_step_idx}: distance to target={loss.item():0.2f}')
-
-                        # optimisation step
-                        self.reach_goal_optimizer.zero_grad()
-                        loss.backward()
-                        self.reach_goal_optimizer.step()
-
-                        if optim_step_idx > 5 and abs(old_loss - loss.item()) < 1e-4:
-                            break
-                        old_loss = loss.item()
-
-                    # gather back the trained parameters
-                    self.system.update_initialization_parameters()
-                    self.system.update_update_rule_parameters()
+                    train_losses = self.system.optimize(self.config.reach_goal_optim_steps, lambda obs: self.goal_space.calc_distance(target_goal, self.goal_space.map(obs)))
+                    print(train_losses)
                     policy_parameters['initialization'] = self.system.initialization_parameters
                     policy_parameters['update_rule'] = self.system.update_rule_parameters
 
-                    dist_to_target = loss.item()
-
-                else:
-                    with torch.no_grad():
-                        observations = self.system.run()
-                        reached_goal = self.goal_space.map(observations)
-                        loss = self.goal_space.calc_distance(target_goal, reached_goal)
-                    optim_step_idx = 0
+                with torch.no_grad():
+                    observations = self.system.run()
+                    reached_goal = self.goal_space.map(observations)
+                    loss = self.goal_space.calc_distance(target_goal, reached_goal)
                     dist_to_target = loss.item()
 
             # save results
@@ -201,8 +161,17 @@ class IMGEPExplorer(Explorer):
                                  source_policy_idx=source_policy_idx,
                                  target_goal=target_goal,
                                  reached_goal=reached_goal,
-                                 n_optim_steps_to_reach_goal=optim_step_idx,
                                  dist_to_target=dist_to_target)
+
+            if self.db.config.save_gifs:
+                self.system.render_traj_gif(observations.potentials,
+                                            gif_filepath=os.path.join(self.db.config.db_directory,
+                                                                      f'run_{run_idx}_render_traj.gif'),
+                                            blocks_colorlist=self.system.blocks_colorlist)
+                self.system.render_slices_gif(observations.potentials[-1],
+                                              gif_filepath=os.path.join(self.db.config.db_directory,
+                                                                        f'run_{run_idx}_render_last.gif'),
+                                              blocks_colorlist=self.system.blocks_colorlist, slice_along="z")
 
             # add policy and reached goal into the libraries
             # do it after the run data is saved to not save them if there is an error during the saving
