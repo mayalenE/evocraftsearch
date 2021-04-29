@@ -39,7 +39,7 @@ class TestIMGEP_HOLMES_Explorer(TestCase):
         db_config = ExplorationDB.default_config()
         db_config.db_directory = '.'
         db_config.save_observations = True
-        db_config.save_gifs = True
+        db_config.save_rollout_render = True
         db_config.load_observations = True
         exploration_db = ExplorationDB(config=db_config)
 

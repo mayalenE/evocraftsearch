@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 import torch
-from evocraftsearch.utils.sampling import sample_value
+from evocraftsearch.utils import sample_value
 
 
 class TestSampling(TestCase):

@@ -163,7 +163,7 @@ class IMGEPExplorer(Explorer):
                                  reached_goal=reached_goal,
                                  dist_to_target=dist_to_target)
 
-            if self.db.config.save_gifs:
+            if self.db.config.save_rollout_render:
                 self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
                                                                                    f'run_{run_idx}_rollout'))
 

@@ -126,7 +126,7 @@ class EAExplorer(Explorer):
                                      policy_parameters=ind_policy,
                                      observations=observations,
                                      fitness=fitness)
-                if self.db.config.save_gifs:
+                if self.db.config.save_rollout_render:
                     self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
                                                                                    f'run_{run_idx}_rollout'))
                 evaluated_individual = Dict(idx=run_idx, policy=ind_policy, fitness=fitness)
