@@ -21,7 +21,6 @@ def str_to_tuple_key(str_key):
 def tuple_to_str_key(tuple_key):
     return f"{tuple_key[0]}_{tuple_key[1]}"
 
-from evocraftsearch.evocraft import minecraft_pb2_grpc
 from evocraftsearch.evocraft.minecraft_pb2 import *
 
 """ =============================================================================================
@@ -613,25 +612,25 @@ class CppnPotentialCA(System, torch.nn.Module):
         else:
             raise NotImplementedError
 
-    @staticmethod
-    def render_slices_gif(potential, gif_filepath, blocks_colorlist, slice_along="y"):
+
+    def render_slices_gif(self, potential, gif_filepath, slice_along="y"):
         SX, SY, SZ, n_channels = potential.shape
         discrete_potential = potential.cpu().detach().argmax(-1)
         gif_images = []
         if slice_along == "x":
             for i in range(SX):
                 im = discrete_potential[i, :, :]
-                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                im = torch.stack([torch.stack([self.blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
                 gif_images.append(im.type(torch.uint8))
         elif slice_along == "y":
             for j in range(SY):
                 im = discrete_potential[:, j, :]
-                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                im = torch.stack([torch.stack([self.blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
                 gif_images.append(im.type(torch.uint8))
         elif slice_along == "z":
             for k in range(SZ):
                 im = discrete_potential[:, :, k]
-                im = torch.stack([torch.stack([blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
+                im = torch.stack([torch.stack([self.blocks_colorlist[int(val)][:3] for val in row]) for row in im])*255.0
                 gif_images.append(im.type(torch.uint8))
         else:
             raise NotImplementedError
@@ -640,9 +639,8 @@ class CppnPotentialCA(System, torch.nn.Module):
         pygifsicle.optimize(gif_filepath)
         return
 
-    @staticmethod
-    def render_traj_gif(potentials, gif_filepath, blocks_colorlist):
-        t, SX, SY, SZ, n_channels = potentials.shape
+    def render_rollout(self, observations, filepath):
+        t, SX, SY, SZ, n_channels = observations.potentials.shape
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery Gif', 800, 800, visible=False)
         p_cam = o3d.camera.PinholeCameraParameters()
@@ -655,7 +653,7 @@ class CppnPotentialCA(System, torch.nn.Module):
                                         [R[2, 0], R[2, 1], R[2, 2], t[2]],
                                         [0., 0., 0., 1.]])
         gif_images = []
-        for potential in potentials:
+        for potential in observations.potentials:
             pcd = o3d.geometry.PointCloud()
             cur_potential = potential.cpu().detach()
             coords = []
@@ -672,7 +670,7 @@ class CppnPotentialCA(System, torch.nn.Module):
                 coords = torch.stack(coords)
                 feats = torch.stack(feats)
                 pcd.points = o3d.utility.Vector3dVector(coords)
-                pcd.colors = o3d.utility.Vector3dVector(torch.stack([blocks_colorlist[feats[i]][:3] for i in range(len(feats))]))
+                pcd.colors = o3d.utility.Vector3dVector(torch.stack([self.blocks_colorlist[feats[i]][:3] for i in range(len(feats))]))
                 voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=1.0)
                 vis.add_geometry(voxel_grid)
                 ctr = vis.get_view_control()
@@ -684,14 +682,14 @@ class CppnPotentialCA(System, torch.nn.Module):
             gif_images.append(out_image)
         vis.close()
         # Save observation gif if specified in config
-        imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=2)
-        pygifsicle.optimize(gif_filepath)
+        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=2)
+        pygifsicle.optimize(filepath + ".gif")
         return
 
-    @staticmethod
-    def render_traj_in_minecraft(potentials, client, arena_bbox, blocks_list):
-        t, SX, SY, SZ, n_channels = potentials.shape
-        for potential in potentials:
+
+    def render_traj_in_minecraft(self, observations, client, arena_bbox):
+        t, SX, SY, SZ, n_channels = observations.potentials.shape
+        for potential in observations.potentials:
             cur_potential = potential.cpu().detach()
             coords = []
             feats = []
@@ -713,7 +711,7 @@ class CppnPotentialCA(System, torch.nn.Module):
                     if (world_x < arena_bbox[0] + arena_bbox[3]) and (world_y < arena_bbox[1] + arena_bbox[4]) and (
                             world_z < arena_bbox[2] + arena_bbox[5]):
                         cur_pos = Point(x=world_x, y=world_y, z=world_z)
-                        cur_block = Block(position=cur_pos, type=blocks_list[feats[block_idx]], orientation='NORTH')
+                        cur_block = Block(position=cur_pos, type=self.blocks_list[feats[block_idx]], orientation='NORTH')
                         blocks.append(cur_block)
 
                 # Clear the necessary working area

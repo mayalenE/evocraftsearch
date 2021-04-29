@@ -276,14 +276,8 @@ class IMGEP_HOLMES_Explorer(Explorer):
                                  dist_to_target=dist_to_target)
 
             if self.db.config.save_gifs:
-                self.system.render_traj_gif(observations.potentials,
-                                            gif_filepath=os.path.join(self.db.config.db_directory,
-                                                                      f'run_{run_idx}_render_traj.gif'),
-                                            blocks_colorlist=self.system.blocks_colorlist)
-                self.system.render_slices_gif(observations.potentials[-1],
-                                              gif_filepath=os.path.join(self.db.config.db_directory,
-                                                                        f'run_{run_idx}_render_last.gif'),
-                                              blocks_colorlist=self.system.blocks_colorlist, slice_along="z")
+                self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
+                                                                                   f'run_{run_idx}_rollout'))
 
 
             # add policy and reached goal into the libraries

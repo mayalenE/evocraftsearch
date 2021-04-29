@@ -22,3 +22,7 @@ class RandomExplorer(Explorer):
                 self.db.add_run_data(id=run_idx,
                                      policy_parameters=policy_parameters,
                                      observations=observations)
+
+                if self.db.config.save_gifs:
+                    self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
+                                                                                   f'run_{run_idx}_rollout'))

@@ -116,4 +116,4 @@ class TestCppnPotentialCA(TestCase):
             #system.render_traj_in_minecraft(observations.potentials, client, arena_bbox=((creature_idx % 10)*max(system.config.SX,16),4,(creature_idx // 10)*max(system.config.SZ,16),40,40,40), blocks_list=system.config.blocks_list)
             system.render_slices_gif(observations.potentials[0], f"creature_{creature_idx}_start.gif", blocks_colorlist=system.blocks_colorlist, slice_along="z")
             system.render_slices_gif(observations.potentials[-1], f"creature_{creature_idx}_end.gif", blocks_colorlist=system.blocks_colorlist, slice_along="z")
-            system.render_traj_gif(observations.potentials, f"creature_{creature_idx}_traj.gif", blocks_colorlist=system.blocks_colorlist)
+            system.render_rollout(observations, f"creature_{creature_idx}_traj")

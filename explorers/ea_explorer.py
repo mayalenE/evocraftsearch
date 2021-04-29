@@ -5,6 +5,7 @@ from tqdm import tqdm
 import torch
 import random
 import sys
+import os
 
 class EAExplorer(Explorer):
     """
@@ -125,6 +126,9 @@ class EAExplorer(Explorer):
                                      policy_parameters=ind_policy,
                                      observations=observations,
                                      fitness=fitness)
+                if self.db.config.save_gifs:
+                    self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
+                                                                                   f'run_{run_idx}_rollout'))
                 evaluated_individual = Dict(idx=run_idx, policy=ind_policy, fitness=fitness)
                 offspring[relative_idx] = evaluated_individual
                 run_idx += 1
