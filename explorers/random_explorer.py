@@ -1,4 +1,4 @@
-from addict import Dict
+import torch
 from morphosearch.core import Explorer
 from tqdm import tqdm
 
@@ -12,16 +12,13 @@ class RandomExplorer(Explorer):
         for run_idx in tqdm(range(n_exploration_runs)):
 
             if run_idx not in self.data:
-                policy_parameters = Dict.fromkeys(
-                    ['initialization', 'update_rule'])  # policy parameters (output of IMGEP policy)
+                policy_parameters = self.system.sample_policy_parameters()
+                self.system.reset(policy=policy_parameters)
 
-                policy_parameters['initialization'] = self.system.initialization_space.sample()
-                policy_parameters['update_rule'] = self.system.update_rule_space.sample()
-
-                observations = self.system.run(initialization_parameters=policy_parameters['initialization'],
-                                               update_rule_parameters=policy_parameters['update_rule'])
+                with torch.no_grad():
+                    observations = self.system.run()
 
                 # save results
                 self.db.add_run_data(id=run_idx,
-                                     run_parameters=policy_parameters,
+                                     policy_parameters=policy_parameters,
                                      observations=observations)
