@@ -3,6 +3,7 @@
 */tests/run_*
 */tests/*.pickle
 */tests/training/
+*/*/tests/creature_*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
