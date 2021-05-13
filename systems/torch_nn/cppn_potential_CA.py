@@ -1,9 +1,9 @@
 from addict import Dict
 import torch
-import numbers
+import torch.nn.functional as F
 from evocraftsearch import System
 from evocraftsearch.utils.torch_utils import SphericPad
-from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, MultiBinarySpace, CPPNSpace
+from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, BiasedMultiBinarySpace, CPPNSpace
 from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
 from math import floor, cos, sin, pi
@@ -14,39 +14,24 @@ import imageio
 import pygifsicle
 import numpy as np
 
+# CONVENTION: tensors are given in (N,C,D,H,W) as for torch modules
+
 def str_to_tuple_key(str_key):
     splitted_key = str_key.split("_")
-    return (int(splitted_key[0]), int(splitted_key[1]))
+    return tuple([int(k) for k in splitted_key])
 
 def tuple_to_str_key(tuple_key):
-    return f"{tuple_key[0]}_{tuple_key[1]}"
+    return "_".join([str(k) for k in tuple_key])
 
 from evocraftsearch.evocraft.minecraft_pb2 import *
 
 """ =============================================================================================
 Initialization Space: 
 ============================================================================================= """
-class BiasedMultiBinarySpace(MultiBinarySpace):
-
-    def __init__(self, n, indpb_sample=1.0, indpb=1.0):
-
-        if type(n) in [tuple, list, torch.tensor]:
-            input_n = n
-        else:
-            input_n = (n,)
-        if isinstance(indpb_sample, numbers.Number):
-            indpb_sample = torch.full(input_n, indpb_sample, dtype=torch.float64)
-        self.indpb_sample = torch.as_tensor(indpb_sample, dtype=torch.float64)
-
-        MultiBinarySpace.__init__(self, n=n, indpb=indpb)
-
-    def sample(self):
-        return torch.bernoulli(self.indpb_sample).to(self.dtype)
-
 
 class CppnPotentialCAInitializationSpace(DictSpace):
 
-    def __init__(self, n_blocks, neat_config):
+    def __init__(self, n_blocks, neat_config, occupation_ratio_range=[0.1,0.2]):
 
         self.n_blocks = n_blocks
         self.neat_config = neat_config
@@ -54,7 +39,7 @@ class CppnPotentialCAInitializationSpace(DictSpace):
         self.C = BiasedMultiBinarySpace(n=n_blocks-1, indpb_sample=0.8, indpb=0.01)
         self.I = DictSpace(
                 cppn_genome=CPPNSpace(neat_config),
-                occupation_ratio=BoxSpace(low=0.2, high=0.5, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
+                occupation_ratio=BoxSpace(low=occupation_ratio_range[0], high=occupation_ratio_range[1], shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
             )
 
     def sample(self):
@@ -130,9 +115,10 @@ Update Rule Space:
 
 class CppnPotentialCAUpdateRuleSpace(Space):
 
-    def __init__(self, n_blocks, neat_config):
+    def __init__(self, n_blocks, n_kernels, neat_config, RX_max=5, RY_max=5, RZ_max=5):
 
         self.n_blocks = n_blocks
+        self.n_kernels = n_kernels
         self.neat_config = neat_config
 
         self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=1.0, indpb=0.1, dtype=torch.float32)
@@ -143,16 +129,18 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
                 if c1 == c0: # higher sampling rate and lower mutation rate for channelwise kernels
-                    indpb_sample_cross_channels.append(0.7)
+                    indpb_sample_cross_channels.append(1.0)
                     indpb_mutate_cross_channels.append(0.05)
                 else:
-                    indpb_sample_cross_channels.append(0.4)
+                    indpb_sample_cross_channels.append(0.5)
                     indpb_mutate_cross_channels.append(0.05)
 
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
 
         self.K = DictSpace(
-                R=DiscreteSpace(n=3, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
+                RX=DiscreteSpace(n=RX_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
+                RY=DiscreteSpace(n=RY_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
+                RZ=DiscreteSpace(n=RZ_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
                 cppn_genome=CPPNSpace(neat_config),
                 m=BoxSpace(low=0.1, high=0.6, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
                 s=BoxSpace(low=0.001, high=0.2, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.1, dtype=torch.float32),
@@ -169,7 +157,8 @@ class CppnPotentialCAUpdateRuleSpace(Space):
             for c1 in range(1, self.n_blocks):
                 is_cross_kernel = bool(x['C'][unrolled_idx])
                 if is_cross_kernel:
-                    x['K'][tuple_to_str_key((c0,c1))] = self.K.sample()
+                    for k in range(self.n_kernels):
+                        x['K'][tuple_to_str_key((c0,c1,k))] = self.K.sample()
                 unrolled_idx += 1
         return x
 
@@ -186,9 +175,11 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                 if is_cross_kernel:
                     was_cross_kernel = bool(x['C'][unrolled_idx])
                     if was_cross_kernel:
-                        new_x['K'][tuple_to_str_key((c0, c1))] = self.K.mutate(x['K'][tuple_to_str_key((c0, c1))])
+                        for k in range(self.n_kernels):
+                            new_x['K'][tuple_to_str_key((c0, c1, k))] = self.K.mutate(x['K'][tuple_to_str_key((c0, c1, k))])
                     else:
-                        new_x['K'][tuple_to_str_key((c0, c1))] = self.K.sample()
+                        for k in range(self.n_kernels):
+                            new_x['K'][tuple_to_str_key((c0, c1, k))] = self.K.sample()
                 unrolled_idx += 1
         return new_x
 
@@ -202,29 +193,31 @@ class CppnPotentialCAUpdateRuleSpace(Space):
         unrolled_idx = 0
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
+
                 was_x1_cross_kernel = bool(x1['C'][unrolled_idx])
                 was_x2_cross_kernel = bool(x2['C'][unrolled_idx])
                 is_child_1_cross_kernel = bool(child_1['C'][unrolled_idx])
                 is_child_2_cross_kernel = bool(child_2['C'][unrolled_idx])
 
-                if is_child_1_cross_kernel or is_child_2_cross_kernel:
-                    if was_x1_cross_kernel:
-                        cur_x1_K = x1['K'][tuple_to_str_key((c0, c1))]
-                    else:
-                        cur_x1_K = self.K.sample()
+                for k in range(self.n_kernels):
+                    if is_child_1_cross_kernel or is_child_2_cross_kernel:
+                        if was_x1_cross_kernel:
+                            cur_x1_K = x1['K'][tuple_to_str_key((c0, c1, k))]
+                        else:
+                            cur_x1_K = self.K.sample()
 
-                    if was_x2_cross_kernel:
-                        cur_x2_K = x2['K'][tuple_to_str_key((c0, c1))]
-                    else:
-                        cur_x2_K = self.K.sample()
+                        if was_x2_cross_kernel:
+                            cur_x2_K = x2['K'][tuple_to_str_key((c0, c1, k))]
+                        else:
+                            cur_x2_K = self.K.sample()
 
-                    cur_child_1, cur_child_2 = self.K.crossover(cur_x1_K, cur_x2_K)
+                        cur_child_1, cur_child_2 = self.K.crossover(cur_x1_K, cur_x2_K)
 
-                    if is_child_1_cross_kernel:
-                        child_1['K'][tuple_to_str_key((c0, c1))] = cur_child_1
+                        if is_child_1_cross_kernel:
+                            child_1['K'][tuple_to_str_key((c0, c1, k))] = cur_child_1
 
-                    if is_child_2_cross_kernel:
-                        child_2['K'][tuple_to_str_key((c0, c1))] = cur_child_2
+                        if is_child_2_cross_kernel:
+                            child_2['K'][tuple_to_str_key((c0, c1, k))] = cur_child_2
 
                 unrolled_idx += 1
 
@@ -248,10 +241,11 @@ CppnPotentialCA Main
 class CppnPotentialCAInitialization(torch.nn.Module):
     """ Module pytorch that computes one CppnPotentialCA Initialization """
 
-    def __init__(self, I, cppn_config, max_potential=1.0, device='cpu'):
+    def __init__(self, I, cppn_config, cppn_n_passes=3, max_potential=1.0, device='cpu'):
         torch.nn.Module.__init__(self)
 
         self.cppn_config = cppn_config
+        self.cppn_n_passes = cppn_n_passes
         self.max_potential = max_potential
         self.device = device
         self.register_cppns(I)
@@ -268,18 +262,18 @@ class CppnPotentialCAInitialization(torch.nn.Module):
             self.I.add_module(str_key, module_cur_I)
 
 
-    def forward(self, output_size=(16,16,16,10)):
+    def forward(self, output_size=(10,16,16,16)):
         output_img = torch.zeros(output_size, device=self.device)
         for str_key, I in self.I.named_children():
             c = int(str_key)
             # the cppn generated output is confined to a limited space:
-            c_output_size = tuple([int(s * I.occupation_ratio) for s in output_size[:-1]])
+            c_output_size = tuple([max(int(s * I.occupation_ratio), 1) for s in output_size[1:]])
             c_cppn_input = pytorchneat.utils.create_image_cppn_input(c_output_size, is_distance_to_center=True, is_bias=True)
-            c_cppn_output = (self.max_potential - self.max_potential * I.cppn_net.activate(c_cppn_input, 3).abs()).squeeze(-1) # TODO: config cppn_n_passes
-            offset_X = floor((output_size[0] - c_cppn_output.shape[0]) / 2)
-            offset_Y = floor((output_size[1] - c_cppn_output.shape[1]) / 2)
-            offset_Z = floor((output_size[2] - c_cppn_output.shape[2]) / 2)
-            output_img[offset_X:offset_X+c_cppn_output.shape[0], offset_Y:offset_Y+c_cppn_output.shape[1], offset_Z:offset_Z+c_cppn_output.shape[2], c] = c_cppn_output
+            c_cppn_output = (self.max_potential - self.max_potential * I.cppn_net.activate(c_cppn_input, self.cppn_n_passes).abs()).squeeze(-1) # TODO: config cppn_n_passes
+            offset_Z = floor((output_size[1] - c_cppn_output.shape[0]) / 2)
+            offset_Y = floor((output_size[2] - c_cppn_output.shape[1]) / 2)
+            offset_X = floor((output_size[3] - c_cppn_output.shape[2]) / 2)
+            output_img[c, offset_Z:offset_Z+c_cppn_output.shape[0], offset_Y:offset_Y+c_cppn_output.shape[1], offset_X:offset_X+c_cppn_output.shape[2]] = c_cppn_output
         return output_img
 
 
@@ -287,18 +281,19 @@ class CppnPotentialCAInitialization(torch.nn.Module):
 class CppnPotentialCAStep(torch.nn.Module):
     """ Module pytorch that computes one CppnPotentialCA Step """
 
-    def __init__(self, T, K, cppn_config, max_potential=1.0, is_soft_clip=False, device='cpu'):
+    def __init__(self, T, K, cppn_config, cppn_n_passes=3, max_potential=1.0, update_rate=0.5, update_clip="hard", device='cpu'):
         torch.nn.Module.__init__(self)
 
         self.cppn_config = cppn_config
-        self.is_soft_clip = is_soft_clip
+        self.cppn_n_passes = cppn_n_passes
+        self.max_potential = max_potential
+        self.update_rate = update_rate
+        self.update_clip = update_clip # either "hard", "soft" or None
 
         self.device = device
 
         self.register_parameter('T', torch.nn.Parameter(T))
         self.register_kernels(K)
-
-        self.max_potential = max_potential
 
     def gfunc(self, n, m, s):
         return torch.exp(- (n - m) ** 2 / (2 * s ** 2)) * 2 - 1
@@ -307,8 +302,10 @@ class CppnPotentialCAStep(torch.nn.Module):
         self.K = torch.nn.Module()
         for str_key, cur_K in K.items():
             module_cur_K = torch.nn.Module()
-            module_cur_K.register_buffer('R', cur_K['R']+2)
-            module_cur_K.add_module('pad', SphericPad(cur_K['R']+2))
+            module_cur_K.register_buffer('RZ', cur_K['RZ'])
+            module_cur_K.register_buffer('RY', cur_K['RY'])
+            module_cur_K.register_buffer('RX', cur_K['RX'])
+            module_cur_K.add_module('pad', SphericPad((cur_K['RZ'], cur_K['RY'], cur_K['RX'])))
             module_cur_K.add_module('cppn_net', pytorchneat.rnn.RecurrentNetwork.create(cur_K['cppn_genome'], self.cppn_config, device=self.device))
             module_cur_K.register_parameter('m', torch.nn.Parameter(cur_K['m']))
             module_cur_K.register_parameter('s', torch.nn.Parameter(cur_K['s']))
@@ -318,9 +315,11 @@ class CppnPotentialCAStep(torch.nn.Module):
     def reset_kernels(self):
         self.kernels = Dict()
         for str_key, K in self.K.named_children():
-            kernel_SY = kernel_SX = kernel_SZ = 2 * K.R + 1
-            cppn_input = pytorchneat.utils.create_image_cppn_input((kernel_SY, kernel_SX, kernel_SZ), is_distance_to_center=True, is_bias=True)
-            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, 3).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
+            kernel_SZ = 2 * K.RZ + 1
+            kernel_SY = 2 * K.RY + 1
+            kernel_SX = 2 * K.RX + 1
+            cppn_input = pytorchneat.utils.create_image_cppn_input((kernel_SZ, kernel_SY, kernel_SX), is_distance_to_center=True, is_bias=True)
+            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, self.cppn_n_passes).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
             kernel_sum = torch.sum(cppn_output_kernel)
             if kernel_sum > 0:
                 self.kernels[str_key] = cppn_output_kernel / kernel_sum
@@ -331,23 +330,41 @@ class CppnPotentialCAStep(torch.nn.Module):
     def forward(self, input):
         field = torch.zeros_like(input)
         for str_key, K in self.K.named_children():
-            c0, c1 = str_to_tuple_key(str_key)
+            # perception kernel
+            c0, c1, k = str_to_tuple_key(str_key)
             with torch.no_grad():
-                padded_input = K.pad(input[:, :, :, :, c0]).unsqueeze(0)
-                #padded_input = input[:, :, :, :, c0].unsqueeze(0)
-            potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key])  # TODO: spherical padding or not?
-            #potential = torch.nn.functional.conv3d(padded_input, weight=self.kernels[str_key], padding=int(K.R.item()))
-            delta_field_c1 = self.gfunc(potential, K.m, K.s).squeeze(1)
-            field[:, :, :, :, c1] = field[:, :, :, :, c1] + K.h * delta_field_c1
+                padded_input = K.pad(input[:, c0, :, :, :].unsqueeze(1))
+            perception_grid = F.conv3d(padded_input, weight=self.kernels[str_key])  # TODO: spherical padding or not?
 
-        # because c1=0 not in kernels, the potential of the air is fixed to cste, meaning that to survive potential of other block types must be > air_potential
-        output_potential = torch.clamp(input + (1.0 / self.T) * field, min=0.0, max=self.max_potential)
+            # update growth
+            update_grid = self.gfunc(perception_grid, K.m, K.s).squeeze(1)
+
+            # update field
+            field[:, c1, :, :, :] = field[:, c1, :, :, :] + K.h * update_grid
+
+        # random update mask
+        rand_mask = (torch.rand(field.shape) + self.update_rate).floor().to(field.device)
+        field = rand_mask * field
+
+        if self.update_clip == "hard":
+            output_potential = torch.clamp(input + (1.0 / self.T) * field, min=0.0, max=self.max_potential)
+
+        elif self.update_clip == "soft":
+            output_potential = torch.sigmoid((input + (1.0 / self.T) * field - self.max_potential/2.0) * 10.0 / self.max_potential)
+
+        elif self.update_clip == None:
+            output_potential = input + (1.0 / self.T) * field
+
+        # alive mask
+        kernel_size = (min(3, input.shape[2]), min(3, input.shape[3]), min(3, input.shape[4]))
+        pad_f = SphericPad((kernel_size[0]//2, kernel_size[1]//2, kernel_size[2]//2))
+        padded_output_potential = pad_f(output_potential)
+        argmax_potential = F.max_pool3d(padded_output_potential, kernel_size=kernel_size, stride=1)
+        alive_mask = (argmax_potential >= input[0,0,0,0,0]) #argmax potentia is not the one of air (channel 0)
+        output_potential = output_potential * alive_mask.type(output_potential.dtype).to(update_grid.device)
 
         return output_potential
 
-
-def all_orientations(args):
-    pass
 
 
 class CppnPotentialCA(System, torch.nn.Module):
@@ -355,14 +372,17 @@ class CppnPotentialCA(System, torch.nn.Module):
     @staticmethod
     def default_config():
         default_config = System.default_config()
-        default_config.SX = 16
-        default_config.SY = 16
         default_config.SZ = 16
+        default_config.SY = 16
+        default_config.SX = 16
         default_config.blocks_list = ['AIR', 'CLAY', 'SLIME', 'PISTON', 'STICKY_PISTON', 'REDSTONE_BLOCK'] # block 0 is always air
         default_config.final_step = 10
 
         default_config.air_potential = 0.1
         default_config.max_potential = 1.0
+
+        default_config.update_rate = 0.5
+        default_config.update_clip = "hard"
         return default_config
 
 
@@ -414,7 +434,8 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.add_module('ca_init', ca_init)
 
         # initialize CppnPotentialCA CA step with update rule parameters
-        ca_step = CppnPotentialCAStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.neat_config, self.config.max_potential, is_soft_clip=False, device=self.device)
+        ca_step = CppnPotentialCAStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.neat_config,
+                                      max_potential=self.config.max_potential, update_rate=self.config.update_rate, update_clip=self.config.update_clip, device=self.device)
         self.add_module('ca_step', ca_step)
 
         # push the nn.Module and the available devoce
@@ -429,11 +450,25 @@ class CppnPotentialCA(System, torch.nn.Module):
 
 
     def generate_init_potential(self):
-        init_potential = self.ca_init(output_size=(self.config.SX, self.config.SY, self.config.SZ, self.n_blocks)).unsqueeze(0)
-        init_potential[:, :, :, :, 0] = self.config.air_potential
+        init_potential = self.ca_init(output_size=(self.n_blocks, self.config.SZ, self.config.SY, self.config.SX)).unsqueeze(0)
+        init_potential[:, 0, :, :, :] = self.config.air_potential
         self.potential = init_potential
-        #sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0 #todo: dont detach?
-        #self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1,self.n_blocks) * self.potential, format="BXXXC")
+
+        self.onehot_state = F.gumbel_softmax(torch.log(self.potential), tau=0.01, hard=True, dim=1)
+
+        discrete_potential = self.potential[0].detach().argmax(0)
+
+        self.is_dead = torch.all(discrete_potential.eq(
+            discrete_potential[0, 0, 0]))  # if all values converge to same block, we consider the output dead
+        rgb_state = torch.ones((3, self.config.SZ, self.config.SY, self.config.SX), dtype=self.potential.dtype)
+        non_empty_locations = torch.nonzero(discrete_potential).long()
+
+        if not self.is_dead:
+            rgb_state[:, non_empty_locations[:, 0], non_empty_locations[:, 1], non_empty_locations[:, 2]] = \
+                torch.stack([self.blocks_colorlist[i][:3] for i in discrete_potential[
+                    non_empty_locations[:, 0], non_empty_locations[:, 1], non_empty_locations[:, 2]].tolist()],
+                            dim=-1).type(self.potential.dtype)
+        self.rgb_state = rgb_state
         self.step_idx = 0
 
 
@@ -525,13 +560,25 @@ class CppnPotentialCA(System, torch.nn.Module):
                     module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
                 if not self.update_rule_space.K['h'].contains(module.h.data):
                     module.h.data = self.update_rule_space.K['h'].clamp(module.h.data)
-        self.potential = self.ca_step(self.potential)
-        #sparse_mask = torch.nn.functional.gumbel_softmax(torch.log(self.potential.detach()), tau=0.01, hard=True).argmax(-1) > 0
-        #self.sparse_potential = ME.to_sparse(sparse_mask.unsqueeze(-1).repeat(1, 1, 1, 1, self.n_blocks) * self.potential, format="BXXXC")
-        self.step_idx += 1
 
-        discrete_potential = self.potential.detach().argmax(-1)
-        self.is_dead = torch.all(discrete_potential.eq(discrete_potential[0,0,0,0])) # if all values converge to same block, we consider the output dead
+        self.potential = self.ca_step(self.potential) #diff continuous
+
+        self.onehot_state = F.gumbel_softmax(torch.log(self.potential), tau=0.01, hard=True, dim=1)
+
+        discrete_potential = self.potential[0].detach().argmax(0)
+
+        self.is_dead = torch.all(discrete_potential.eq(discrete_potential[0, 0, 0]))  # if all values converge to same block, we consider the output dead
+        rgb_state = torch.ones((3, self.config.SZ, self.config.SY, self.config.SX), dtype=self.potential.dtype)
+        non_empty_locations = torch.nonzero(discrete_potential).long()
+
+        if not self.is_dead:
+            rgb_state[:, non_empty_locations[:, 0], non_empty_locations[:, 1], non_empty_locations[:, 2]] = \
+                torch.stack([self.blocks_colorlist[i][:3] for i in discrete_potential[
+                    non_empty_locations[:, 0], non_empty_locations[:, 1], non_empty_locations[:, 2]].tolist()],
+                            dim=-1).type(self.potential.dtype)
+        self.rgb_state = rgb_state
+
+        self.step_idx += 1
 
         return self.potential
 
@@ -545,21 +592,25 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.generate_update_rule_kernels()
         self.generate_init_potential()
         observations = Dict()
-        observations.timepoints = list(range(self.config.final_step))
-        observations.potentials = torch.empty((self.config.final_step, self.config.SX, self.config.SY, self.config.SZ, self.n_blocks))
-        observations.potentials[0] = self.potential[0]
-        # sparse_potentials_coords = [self.sparse_potential.C]
-        # sparse_potentials_feats = [self.sparse_potential.F]
+        observations.timepoints = [0]
+        observations.potentials = [self.potential[0]]
+        observations.onehot_states = [self.onehot_state[0]]
+        observations.rgb_states = [self.rgb_state]
         for step_idx in range(1, self.config.final_step):
+            if self.is_dead:
+                break
+
             if render:
                 self.render(mode=render_mode)
             _ = self.step(None)
-            observations.potentials[step_idx] = self.potential[0]
-            if self.is_dead:
-                break
-            # sparse_potentials_coords.append(self.sparse_potential.C)
-            # sparse_potentials_feats.append(self.sparse_potential.F)
+            observations.timepoints.append(step_idx)
+            observations.potentials.append(self.potential[0])
+            observations.onehot_states.append(self.onehot_state[0])
+            observations.rgb_states.append(self.rgb_state)
 
+        observations.potentials = torch.stack(observations.potentials)
+        observations.onehot_states = torch.stack(observations.onehot_states)
+        observations.rgb_states = torch.stack(observations.rgb_states)
         return observations
 
 
@@ -568,9 +619,9 @@ class CppnPotentialCA(System, torch.nn.Module):
         if mode == "human":
             visible = True
         vis = o3d.visualization.Visualizer()
-        vis.create_window('Discovery',800, 800, visible=visible)
+        vis.create_window('Discovery', 800, 800, visible=visible)
         pcd = o3d.geometry.PointCloud()
-        cur_potential = self.potential[0].cpu().detach()
+        cur_potential = self.potential[0].cpu().detach().permute(3, 2, 1, 0) # permute to X,Y,Z,C
         coords = []
         feats = []
         offset = torch.tensor([self.config.SX/2.,self.config.SY/2.,self.config.SZ/2.])
@@ -614,8 +665,8 @@ class CppnPotentialCA(System, torch.nn.Module):
 
 
     def render_slices_gif(self, potential, gif_filepath, slice_along="y"):
-        SX, SY, SZ, n_channels = potential.shape
-        discrete_potential = potential.cpu().detach().argmax(-1)
+        discrete_potential = potential.cpu().detach().permute(3, 2, 1, 0).argmax(-1)
+        SX, SY, SZ = discrete_potential.shape
         gif_images = []
         if slice_along == "x":
             for i in range(SX):
@@ -635,27 +686,35 @@ class CppnPotentialCA(System, torch.nn.Module):
         else:
             raise NotImplementedError
         # Save observation gif if specified in config
-        imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=2)
+        imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=4)
         pygifsicle.optimize(gif_filepath)
         return
 
     def render_rollout(self, observations, filepath):
-        t, SX, SY, SZ, n_channels = observations.potentials.shape
+        t, n_channels, SZ, SY, SX = observations.potentials.shape
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery Gif', 800, 800, visible=False)
         p_cam = o3d.camera.PinholeCameraParameters()
         p_cam.intrinsic.set_intrinsics(width=800, height=800, fx=0, fy=0, cx=399.5, cy=399.5)
-        R = get_rotation_matrix(pi / 4.0, pi / 4., 0)
-        d = 1.2 * max(SX, SY, SZ)
-        t = torch.tensor([SX / 8.0, 0, d])
-        p_cam.extrinsic = torch.tensor([[R[0, 0], R[0, 1], R[0, 2], t[0]],
-                                        [R[1, 0], R[1, 1], R[1, 2], t[1]],
-                                        [R[2, 0], R[2, 1], R[2, 2], t[2]],
-                                        [0., 0., 0., 1.]])
+        if SZ == 1:
+            d = max(SX, SY, SZ) / 1.5
+            p_cam.extrinsic = torch.tensor([[1.0, 0.0, 0.0, 0.0],
+                                            [0.0, -1.0, 0.0, 0.0],
+                                            [0.0, 0.0, -1.0, d],
+                                            [0., 0., 0., 1.]])
+
+        elif SZ > 1:
+            d = 1.2 * max(SX, SY, SZ)
+            R = get_rotation_matrix(pi / 4.0, pi / 4., 0)
+            t = torch.tensor([SX / 8.0, 0, d])
+            p_cam.extrinsic = torch.tensor([[R[0, 0], R[0, 1], R[0, 2], t[0]],
+                                            [R[1, 0], R[1, 1], R[1, 2], t[1]],
+                                            [R[2, 0], R[2, 1], R[2, 2], t[2]],
+                                            [0., 0., 0., 1.]])
         gif_images = []
         for potential in observations.potentials:
             pcd = o3d.geometry.PointCloud()
-            cur_potential = potential.cpu().detach()
+            cur_potential = potential.cpu().detach().permute(3, 2, 1, 0) # permute to X,Y,Z,C
             coords = []
             feats = []
             offset = torch.tensor([SX/2., SY/2., SZ/2.])
@@ -682,15 +741,17 @@ class CppnPotentialCA(System, torch.nn.Module):
             gif_images.append(out_image)
         vis.close()
         # Save observation gif if specified in config
-        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=2)
+        imageio.imwrite(filepath + "_start.png", gif_images[0], format="PNG-PIL")
+        imageio.imwrite(filepath + "_end.png", gif_images[-1], format="PNG-PIL")
+        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=4)
         pygifsicle.optimize(filepath + ".gif")
         return
 
 
     def render_traj_in_minecraft(self, observations, client, arena_bbox):
-        t, SX, SY, SZ, n_channels = observations.potentials.shape
+        t, n_channels, SZ, SY, SX = observations.potentials.shape
         for potential in observations.potentials:
-            cur_potential = potential.cpu().detach()
+            cur_potential = potential.cpu().detach().permute(3, 2, 1, 0)
             coords = []
             feats = []
             for i in range(SX):
