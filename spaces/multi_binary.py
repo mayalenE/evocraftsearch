@@ -78,3 +78,21 @@ class MultiBinarySpace(Space):
 
     def __eq__(self, other):
         return isinstance(other, MultiBinarySpace) and self.n == other.n
+
+
+class BiasedMultiBinarySpace(MultiBinarySpace):
+
+    def __init__(self, n, indpb_sample=1.0, indpb=1.0):
+
+        if type(n) in [tuple, list, torch.tensor]:
+            input_n = n
+        else:
+            input_n = (n,)
+        if isinstance(indpb_sample, numbers.Number):
+            indpb_sample = torch.full(input_n, indpb_sample, dtype=torch.float64)
+        self.indpb_sample = torch.as_tensor(indpb_sample, dtype=torch.float64)
+
+        MultiBinarySpace.__init__(self, n=n, indpb=indpb)
+
+    def sample(self):
+        return torch.bernoulli(self.indpb_sample).to(self.dtype)
