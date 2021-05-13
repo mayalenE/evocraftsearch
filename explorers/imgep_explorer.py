@@ -35,10 +35,28 @@ class BoxGoalSpace(BoxSpace):
         return embedding
 
     def calc_distance(self, embedding_a, embedding_b, **kwargs):
-        return self.representation.calc_distance(embedding_a, embedding_b, **kwargs)
+        calc_dist_op = getattr(self.representation, "calc_distance", None)
+        if callable(calc_dist_op):
+            return self.representation.calc_distance(embedding_a, embedding_b, **kwargs)
+        else:
+            # L2 by default
+            embedding_a = (embedding_a - self.low) / (self.high - self.low)
+            embedding_b = (embedding_b - self.low) / (self.high - self.low)
+            dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
+            return dist
 
     def sample(self):
-        return BoxSpace.sample(self)
+        return BoxSpace.sample(self).to(self.representation.config.device)
+
+    def save(self, filepath):
+        torch.save(self, filepath)
+
+    @staticmethod
+    def load(filepath, map_location='cpu'):
+        goal_space = torch.load(filepath, map_location='cpu')
+        return goal_space
+
+
 
 
 class IMGEPExplorer(Explorer):
@@ -74,7 +92,7 @@ class IMGEPExplorer(Explorer):
         self.policy_library = []
 
         # initialize goal library
-        self.goal_library = torch.empty((0,) + self.goal_space.shape)
+        self.goal_library = torch.empty((0,) + self.goal_space.shape).to(self.goal_space.representation.config.device)
 
 
     def get_source_policy_idx(self, target_goal):
@@ -108,6 +126,9 @@ class IMGEPExplorer(Explorer):
             self.policy_library = []
             self.goal_library = torch.empty((0,) + self.goal_space.shape)
             run_idx = 0
+
+        self.goal_library = self.goal_library.to(self.goal_space.representation.config.device)
+
         while run_idx < n_exploration_runs:
 
             # Initial Random Sampling of Parameters
@@ -167,6 +188,7 @@ class IMGEPExplorer(Explorer):
                 self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
                                                                                    f'run_{run_idx}_rollout'))
 
+
             # add policy and reached goal into the libraries
             # do it after the run data is saved to not save them if there is an error during the saving
             self.policy_library.append(policy_parameters)
@@ -175,3 +197,10 @@ class IMGEPExplorer(Explorer):
             # increment run_idx
             run_idx += 1
             progress_bar.update(1)
+
+    def save(self, filepath):
+        self.goal_space.save(filepath+"goal_space.pickle")
+        tmp_data = self.goal_space
+        self.goal_space = None
+        Explorer.save(self, filepath+"explorer.pickle")
+        self.goal_space = tmp_data

@@ -56,7 +56,8 @@ def center_of_mass(input_array):
     img_size = input_array.shape
     grids = torch.meshgrid(*[torch.arange(0, i) for i in img_size])
 
-    center = torch.tensor([(input_array* grids[dir].double()).sum() / normalizer for dir in range(input_array.ndim)])
+    center = torch.tensor([(input_array* grids[dir].double().to(input_array.device)).sum() / normalizer for dir in range(input_array.ndim)])
+
     if torch.any(torch.isnan(center)):
         center = torch.tensor([int((input_array.shape[0] - 1) / 2), int((input_array.shape[1] - 1) / 2), int((input_array.shape[2] - 1) / 2)])
 
@@ -93,6 +94,9 @@ def calc_image_moments(image):
     size_x = image.shape[2]
 
     x_grid, y_grid, z_grid = torch.meshgrid(torch.arange(0, size_x), torch.arange(0, size_y), torch.arange(0, size_z))
+    x_grid = x_grid.to(image.device)
+    y_grid = y_grid.to(image.device)
+    z_grid = z_grid.to(image.device)
 
     image_moments = Dict()
 
@@ -144,6 +148,7 @@ class ImageStatisticsRepresentation(OutputRepresentation):
         default_config.env_size = (16,16,16)
         default_config.channel_list = list(range(1, 10))
         default_config.distance_function = "L2"
+        default_config.device = "cuda"
         return default_config
 
     def __init__(self, config=None, **kwargs):
@@ -194,16 +199,16 @@ class ImageStatisticsRepresentation(OutputRepresentation):
 
             # activation density
             if activation_volume == 0:
-                activation_density_data = torch.tensor(0.)
+                activation_density_data = torch.tensor(0.).to(self.config.device)
             else:
                 activation_density_data = activation_mass / activation_volume
             if 'activation_density' in self.statistic_names:
                 feature_vector.append(activation_density_data)
 
             # mass distribution around the center
-            distance_weight_matrix = calc_distance_matrix(self.config.env_size)
+            distance_weight_matrix = calc_distance_matrix(self.config.env_size).to(self.config.device)
             if activation_mass <= EPS:
-                activation_mass_distribution = torch.tensor(1.0)
+                activation_mass_distribution = torch.tensor(1.0).to(self.config.device)
             else:
                 activation_mass_distribution = torch.sum(distance_weight_matrix * centered_activation) / torch.sum(centered_activation)
 
@@ -225,7 +230,6 @@ class ImageStatisticsRepresentation(OutputRepresentation):
         last_potential = observations.potentials[-1]
         air_potential = last_potential[0,0,0,0].detach().item()
         filtered_im = torch.where(last_potential > air_potential, last_potential, torch.zeros_like(last_potential))
-        filtered_im = filtered_im.permute(3,2,1,0) #x,y,z,n_channels to n_channels,z,y,x
 
         embedding = self.calc_static_statistics(filtered_im)
 

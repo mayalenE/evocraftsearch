@@ -15,27 +15,27 @@ class SphericPad(nn.Module):
         if isinstance(padding_size, int) or (isinstance(padding_size, torch.Tensor) and padding_size.shape==()):
             self.pad_left = self.pad_right = self.pad_top = self.pad_bottom = self.pad_front = self.pad_back = padding_size
         elif (isinstance(padding_size, tuple) or isinstance(padding_size, torch.Tensor)) and len(padding_size) == 3:
-            self.pad_left = self.pad_right = padding_size[0]
+            self.pad_left = self.pad_right = padding_size[2]
             self.pad_top = self.pad_bottom = padding_size[1]
-            self.pad_front = self.pad_back = padding_size[2]
+            self.pad_front = self.pad_back = padding_size[0]
         elif (isinstance(padding_size, tuple) or isinstance(padding_size, torch.Tensor)) and len(padding_size) == 6:
-            self.pad_left = padding_size[0]
-            self.pad_top = padding_size[1]
-            self.pad_right = padding_size[2]
-            self.pad_bottom = padding_size[3]
-            self.pad_front = padding_size[4]
-            self.pad_back = padding_size[5]
+            self.pad_left = padding_size[5]
+            self.pad_top = padding_size[4]
+            self.pad_right = padding_size[3]
+            self.pad_bottom = padding_size[2]
+            self.pad_front = padding_size[1]
+            self.pad_back = padding_size[0]
         else:
             raise ValueError('The padding size shoud be: int, torch.IntTensor  or tuple of size 2 or tuple of size 4')
 
-    def forward(self, input):
+    def forward(self, input): # input is (N,C,D,H,W)
 
-        output = torch.cat([input, input[:, :self.pad_bottom, :, :]], dim=1)
-        output = torch.cat([output, output[:, :, :self.pad_right, :]], dim=2)
-        output = torch.cat([output, output[:, :, :, :self.pad_back]], dim=3)
-        output = torch.cat([output[:, -(self.pad_bottom + self.pad_top):-self.pad_bottom, :, :], output], dim=1)
-        output = torch.cat([output[:, :, -(self.pad_right + self.pad_left):-self.pad_right, :], output], dim=2)
-        output = torch.cat([output[:, :, :, -(self.pad_back + self.pad_front):-self.pad_right], output], dim=3)
+        output = torch.cat([input, input[:, :, :self.pad_back, :, :]], dim=2)
+        output = torch.cat([output, output[:, :, :, :self.pad_bottom, :]], dim=3)
+        output = torch.cat([output, output[:, :, :, :, :self.pad_right]], dim=4)
+        output = torch.cat([output[:, :, -(self.pad_back + self.pad_front):-self.pad_back, :, :], output], dim=2)
+        output = torch.cat([output[:, :, :, -(self.pad_bottom + self.pad_top):-self.pad_bottom, :], output], dim=3)
+        output = torch.cat([output[:, :, :, :, -(self.pad_right + self.pad_left):-self.pad_right], output], dim=4)
 
         return output
 
