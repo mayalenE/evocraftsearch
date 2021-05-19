@@ -6,13 +6,12 @@ from evocraftsearch.utils.torch_utils import SphericPad
 from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, BiasedMultiBinarySpace, CPPNSpace
 from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
-from math import floor, cos, sin, pi
+from math import floor, cos, sin, pi, ceil, log
 from copy import deepcopy
 import warnings
 import open3d as o3d
 import imageio
 import pygifsicle
-import numpy as np
 
 # CONVENTION: tensors are given in (N,C,D,H,W) as for torch modules
 
@@ -381,7 +380,7 @@ class CppnPotentialCA(System, torch.nn.Module):
         default_config.air_potential = 0.1
         default_config.max_potential = 1.0
 
-        default_config.update_rate = 0.5
+        default_config.update_rate = 1.0
         default_config.update_clip = "hard"
         return default_config
 
@@ -530,21 +529,29 @@ class CppnPotentialCA(System, torch.nn.Module):
 
             if optim_step_idx > 3 and abs(old_loss - loss.item()) < 1e-4:
                 break
-            old_loss = loss.item()
 
             train_losses.append(loss.item())
 
-            if loss.item() < old_loss:
+            if optim_step_idx == 0:
+                best_loss = loss.item()
+
+            if loss.item() < best_loss:
+                print('best loss')
                 # update policy parameters as lead to the better results
                 self.update_initialization_parameters()
                 self.update_update_rule_parameters()
+                best_loss = loss.item()
 
             if self.is_dead:
+                print('is dead')
                 # restart optimisation from slightly mutated params
                 policy_parameters = Dict()
                 policy_parameters['initialization'] = self.initialization_parameters
                 policy_parameters['update_rule'] = self.update_rule_parameters
-                self.reset(policy_parameters)
+                new_policy_parameters = self.mutate_policy_parameters(policy_parameters)
+                self.reset(new_policy_parameters)
+
+            old_loss = loss.item()
 
         return train_losses
 
@@ -692,6 +699,7 @@ class CppnPotentialCA(System, torch.nn.Module):
 
     def render_rollout(self, observations, filepath):
         t, n_channels, SZ, SY, SX = observations.potentials.shape
+        """"""
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery Gif', 800, 800, visible=False)
         p_cam = o3d.camera.PinholeCameraParameters()
@@ -712,7 +720,10 @@ class CppnPotentialCA(System, torch.nn.Module):
                                             [R[2, 0], R[2, 1], R[2, 2], t[2]],
                                             [0., 0., 0., 1.]])
         gif_images = []
-        for potential in observations.potentials:
+        #for potential in observations.potentials:
+        for im in observations.rgb_states:
+            out_image = im[:, self.config.SZ//2, :, :].permute(2,1,0) # permute to X,Y,C
+            """
             pcd = o3d.geometry.PointCloud()
             cur_potential = potential.cpu().detach().permute(3, 2, 1, 0) # permute to X,Y,Z,C
             coords = []
@@ -735,15 +746,16 @@ class CppnPotentialCA(System, torch.nn.Module):
                 ctr = vis.get_view_control()
                 ctr.convert_from_pinhole_camera_parameters(p_cam)
                 ctr.set_constant_z_far(2 * d)
-
             out_image = (np.asarray(vis.capture_screen_float_buffer(True))*255.0).astype(np.uint8)
             vis.clear_geometries()
+            """
             gif_images.append(out_image)
         vis.close()
         # Save observation gif if specified in config
-        imageio.imwrite(filepath + "_start.png", gif_images[0], format="PNG-PIL")
-        imageio.imwrite(filepath + "_end.png", gif_images[-1], format="PNG-PIL")
-        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=4)
+        n_bits = 2 ** ceil(log(len(self.blocks_colorlist),2))
+        imageio.imwrite(filepath + "_start.png", gif_images[0], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
+        imageio.imwrite(filepath + "_end.png", gif_images[-1], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
+        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=4, palettesize=n_bits)
         pygifsicle.optimize(filepath + ".gif")
         return
 
