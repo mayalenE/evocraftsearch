@@ -4,7 +4,7 @@ import neat
 import pytorchneat
 from evocraftsearch.systems import CppnPotentialCA
 from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAUpdateRuleSpace
-from evocraftsearch.output_representation import ImageRepresentation, ImageStatisticsRepresentation
+from evocraftsearch.output_representation import ImageStatisticsRepresentation
 from evocraftsearch import ExplorationDB
 from evocraftsearch.explorers import IMGEPExplorer, BoxGoalSpace
 from exputils.seeding import set_seed

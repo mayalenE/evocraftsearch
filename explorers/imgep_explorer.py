@@ -7,6 +7,7 @@ from evocraftsearch.spaces import BoxSpace
 from evocraftsearch.utils import sample_value
 import numbers
 from tqdm import tqdm
+from exputils.seeding import set_seed
 
 class BoxGoalSpace(BoxSpace):
     def __init__(self, representation, autoexpand=True, low=0., high=0., shape=None, dtype=torch.float32):
@@ -35,15 +36,13 @@ class BoxGoalSpace(BoxSpace):
         return embedding
 
     def calc_distance(self, embedding_a, embedding_b, **kwargs):
-        calc_dist_op = getattr(self.representation, "calc_distance", None)
-        if callable(calc_dist_op):
-            return self.representation.calc_distance(embedding_a, embedding_b, **kwargs)
-        else:
-            # L2 by default
-            embedding_a = (embedding_a - self.low) / (self.high - self.low)
-            embedding_b = (embedding_b - self.low) / (self.high - self.low)
-            dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
-            return dist
+        scale = (self.high - self.low).to(self.representation.config.device)
+        low = self.low.to(self.representation.config.device)
+        # L2 by default
+        embedding_a = (embedding_a - low) / scale
+        embedding_b = (embedding_b - low) / scale
+        dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
+        return dist
 
     def sample(self):
         return BoxSpace.sample(self).to(self.representation.config.device)
@@ -72,6 +71,7 @@ class IMGEPExplorer(Explorer):
     def default_config():
         default_config = Dict()
         # base config
+        default_config.seed = None
         default_config.num_of_random_initialization = 10  # number of random runs at the beginning of exploration to populate the IMGEP memory
 
         # Pi: source policy parameters config
@@ -115,7 +115,7 @@ class IMGEPExplorer(Explorer):
 
         return source_policy_idx
 
-    def run(self, n_exploration_runs, continue_existing_run=False):
+    def run(self, n_exploration_runs, continue_existing_run=False, save_frequency=None, save_filepath=None):
 
         print('Exploration: ')
         progress_bar = tqdm(total=n_exploration_runs)
@@ -130,6 +130,8 @@ class IMGEPExplorer(Explorer):
         self.goal_library = self.goal_library.to(self.goal_space.representation.config.device)
 
         while run_idx < n_exploration_runs:
+
+            set_seed(100000 * self.config.seed + run_idx)
 
             # Initial Random Sampling of Parameters
             if len(self.policy_library) < self.config.num_of_random_initialization:
@@ -193,6 +195,10 @@ class IMGEPExplorer(Explorer):
             # do it after the run data is saved to not save them if there is an error during the saving
             self.policy_library.append(policy_parameters)
             self.goal_library = torch.cat([self.goal_library, reached_goal.reshape(1, -1)])
+
+            if (save_frequency is not None) and (len(self.policy_library) % save_frequency == 0):
+                if (save_filepath is not None) and (os.path.exists(save_filepath)):
+                    self.save(save_filepath)
 
             # increment run_idx
             run_idx += 1
