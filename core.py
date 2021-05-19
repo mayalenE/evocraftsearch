@@ -194,6 +194,7 @@ class Explorer:
     @staticmethod
     def default_config():
         default_config = Dict()
+        default_config.seed = None
         return default_config
 
     def __init__(self, system, explorationdb, config={}, **kwargs):

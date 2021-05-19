@@ -8,7 +8,6 @@ import torch
 from addict import Dict
 from tqdm import tqdm
 
-
 class ExplorationDB:
     """
     Base of all Database classes.
@@ -43,6 +42,43 @@ class ExplorationDB:
         self.run_ids = set()  # list with run_ids that exist in the db
         self.run_data_ids_in_memory = []  # list of run_ids that are hold in memory
 
+    def get_run_data(self, run_id):
+
+        try:
+            return self.runs[run_id]
+
+        except:
+            if run_id not in self.run_ids:
+                raise KeyError(f'Run with ID {run_id} does not exists in the database!')
+
+            elif run_id not in self.run_data_ids_in_memory:
+                # load from database but do not add it to memory
+                filename = 'run_{:07d}_data.pickle'.format(run_id)
+                filepath = os.path.join(self.config.db_directory, filename)
+
+                if os.path.exists(filepath):
+                    run_data_kwargs = torch.load(filepath)
+                else:
+                    run_data_kwargs = {'id': None, 'policy_parameters': None}
+
+                if self.config.load_observations:
+                    filename_obs = 'run_{:07d}_observations.pickle'.format(run_id)
+                    filepath_obs = os.path.join(self.config.db_directory, filename_obs)
+
+                    # load observations
+                    if os.path.exists(filepath_obs):
+                        observations = torch.load(filepath_obs)
+                    else:
+                        observations = None
+                else:
+                    observations = None
+
+                # create run data and add it to memory
+                run_data = Dict(observations=observations, **run_data_kwargs)
+
+                return run_data
+
+
     def add_run_data(self, id, policy_parameters, observations, **kwargs):
 
         run_data_entry = Dict(db=self, id=id, policy_parameters=policy_parameters, observations=observations, **kwargs)
@@ -56,6 +92,7 @@ class ExplorationDB:
 
         self.save([id])  # TODO: modify if we do not want to automatically save after each run
 
+
     def add_run_data_to_memory(self, id, run_data, replace_existing=False):
         self.runs[id] = run_data
         if not replace_existing:
@@ -66,6 +103,7 @@ class ExplorationDB:
                 self.run_data_ids_in_memory) > self.config.memory_size_run_data:
             del (self.runs[self.run_data_ids_in_memory[-1]])
             del (self.run_data_ids_in_memory[-1])
+
 
     def save(self, run_ids=None):
         # the run data entry is save in 2 files: 'run_*_data*' (general data dict such as run parameters -> for now json) and ''run_*_observations*' (observation data dict -> for now npz)
@@ -81,6 +119,7 @@ class ExplorationDB:
             for run_id in run_ids:
                 del self.runs[run_id]
             self.run_data_ids_in_memory = []
+
 
     def save_run_data_to_db(self, run_id):
         run_data = self.runs[run_id]
@@ -115,13 +154,15 @@ class ExplorationDB:
         if run_ids is not None:
             assert isinstance(run_ids, list), "run_ids must be None or a list"
 
-        # set run_ids from the db directory and empty memory
-        self.run_ids = self.load_run_ids_from_db()
         self.runs = OrderedDict()
         self.run_data_ids_in_memory = []
 
         if run_ids is None:
-            run_ids = self.run_ids
+            run_ids = self.load_run_ids_from_db() # set run_ids from the db directory and empty memory
+        else:
+            run_ids = set(run_ids)
+
+        self.run_ids = run_ids
 
         if len(run_ids) > 0:
 
@@ -173,7 +214,7 @@ class ExplorationDB:
                 observations = None
 
             # create run data and add it to memory
-            run_data = Dict(self, observations=observations, **run_data_kwargs)
+            run_data = Dict(observations=observations, **run_data_kwargs)
             self.add_run_data_to_memory(run_id, run_data)
 
             if not self.config.keep_saved_runs_in_memory:
