@@ -68,6 +68,7 @@ class TestIMGEP_OGL_Explorer(TestCase):
         ## Load imgep explorer
         explorer_config = IMGEP_OGL_Explorer.default_config()
         explorer_config.num_of_random_initialization = 30
+        explorer_config.frequency_of_random_initialization = 10
         explorer_config.reach_goal_optim_steps = 20
         explorer_config.goalspace_training.dataset_augment = True
         explorer_config.goalspace_training.train_batch_size = 64

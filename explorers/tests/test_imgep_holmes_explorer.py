@@ -93,6 +93,7 @@ class TestIMGEP_HOLMES_Explorer(TestCase):
         ## Load imgep explorer
         explorer_config = IMGEP_HOLMES_Explorer.default_config()
         explorer_config.num_of_random_initialization = 100
+        explorer_config.frequency_of_random_initialization = 10
         explorer_config.reach_goal_optim_steps = 20
 
         explorer_config.goalspace_preprocess = lambda x: x.argmax(1).unsqueeze(1).float() / system.n_blocks

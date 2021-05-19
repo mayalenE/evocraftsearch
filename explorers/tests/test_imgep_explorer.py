@@ -55,6 +55,7 @@ class TestIMGEPExplorer(TestCase):
         ## Load imgep explorer
         explorer_config = IMGEPExplorer.default_config()
         explorer_config.num_of_random_initialization = 20
+        explorer_config.frequency_of_random_initialization = 10
         explorer_config.reach_goal_optim_steps = 20
         explorer = IMGEPExplorer(system, exploration_db, goal_space, config=explorer_config)
 

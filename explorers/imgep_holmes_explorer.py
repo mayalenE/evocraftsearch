@@ -293,7 +293,7 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
             set_seed(100000 * self.config.seed + run_idx)
 
             # Initial Random Sampling of Parameters
-            if run_idx < self.config.num_of_random_initialization:
+            if (run_idx < self.config.num_of_random_initialization) or (run_idx % self.config.frequency_of_random_initialization == 0):
 
                 target_goal = None
                 source_policy_idx = None
@@ -364,7 +364,10 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
             map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat([ob1, ob2.reshape(1, -1).detach()]))
 
             # append new discovery to train/valid dataset
-            t_slide = observations.potentials.shape[0] // (self.config.goalspace_training.dataset_n_timepoints -1)
+            if self.config.goalspace_training.dataset_n_timepoints == 1:
+                t_slide = 0
+            else:
+                t_slide = observations.potentials.shape[0] // (self.config.goalspace_training.dataset_n_timepoints - 1)
             for t_idx in range(self.config.goalspace_training.dataset_n_timepoints):
                 timepoint = max(-1 - t_idx * t_slide, -observations.potentials.shape[0])
 
