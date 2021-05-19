@@ -8,9 +8,7 @@ class HistogramBlocksRepresentation(OutputRepresentation):
     @staticmethod
     def default_config():
         default_config = OutputRepresentation.default_config()
-        default_config.env_size = (16,16,16)
-        default_config.channel_list = list(range(1, 10))
-        default_config.distance_function = "L2"
+        default_config.channel_list = list(range(0, 10))
         return default_config
 
     def __init__(self, config=None, **kwargs):
@@ -26,25 +24,10 @@ class HistogramBlocksRepresentation(OutputRepresentation):
             Return a torch tensor
         """
         # filter low values
-        discrete_last_potential = observations.potentials[-1].argmax(-1)
-        embedding = discrete_last_potential.flatten().bincount() / discrete_last_potential.flatten().shape[0]
+        discrete_last_potential = observations.potentials[-1].argmax(0)
+        embedding = discrete_last_potential.flatten().bincount(minlength=self.n_latents) / discrete_last_potential.flatten().shape[0]
 
         return embedding
-
-
-    def calc_distance(self, embedding_a, embedding_b):
-        """
-            Compute the distance between 2 embeddings in the latent space
-            /!\ batch mode embedding_a and embedding_b can be N*M or M
-        """
-        # l2 loss
-        if self.config.distance_function == "L2":
-            dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
-
-        else:
-            raise NotImplementedError
-
-        return dist
 
 
 EPS = 0.0001
@@ -146,8 +129,7 @@ class ImageStatisticsRepresentation(OutputRepresentation):
     def default_config():
         default_config = OutputRepresentation.default_config()
         default_config.env_size = (16,16,16)
-        default_config.channel_list = list(range(1, 10))
-        default_config.distance_function = "L2"
+        default_config.channel_list = list(range(0, 10))
         default_config.device = "cuda"
         return default_config
 
@@ -234,18 +216,3 @@ class ImageStatisticsRepresentation(OutputRepresentation):
         embedding = self.calc_static_statistics(filtered_im)
 
         return embedding
-
-
-    def calc_distance(self, embedding_a, embedding_b):
-        """
-            Compute the distance between 2 embeddings in the latent space
-            /!\ batch mode embedding_a and embedding_b can be N*M or M
-        """
-        # l2 loss
-        if self.config.distance_function == "L2":
-            dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
-
-        else:
-            raise NotImplementedError
-
-        return dist
