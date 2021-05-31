@@ -12,7 +12,7 @@ class ImageRepresentation(OutputRepresentation):
         default_config.distance_function = "L2"
         return default_config
 
-    def __init__(self, config=None, **kwargs):
+    def __init__(self, config={}, **kwargs):
         super().__init__(config=config, **kwargs)
         self.n_channels = len(self.config.channel_list)
         self.n_latents = self.n_channels * self.config.env_size[0] * self.config.env_size[1] * self.config.env_size[2]

@@ -11,7 +11,7 @@ class HistogramBlocksRepresentation(OutputRepresentation):
         default_config.channel_list = list(range(0, 10))
         return default_config
 
-    def __init__(self, config=None, **kwargs):
+    def __init__(self, config={}, **kwargs):
         super().__init__(config=config, **kwargs)
         # model
         self.n_channels = len(self.config.channel_list)
@@ -133,7 +133,7 @@ class ImageStatisticsRepresentation(OutputRepresentation):
         default_config.device = "cuda"
         return default_config
 
-    def __init__(self, config=None, **kwargs):
+    def __init__(self, config={}, **kwargs):
         super().__init__(config=config, **kwargs)
         # model
         self.statistic_names = ['activation_mass', 'activation_volume', 'activation_density', 'activation_mass_distribution']
