@@ -8,6 +8,7 @@ import numbers
 from tqdm import tqdm
 import os
 from exputils.seeding import set_seed
+from copy import deepcopy
 
 class TorchNNBoxGoalSpace(BoxSpace):
     def __init__(self, representation, autoexpand=True, low=0., high=0., shape=None, dtype=torch.float32):
@@ -22,6 +23,11 @@ class TorchNNBoxGoalSpace(BoxSpace):
             elif isinstance(shape, numbers.Number):
                 assert shape == self.representation.n_latents
         BoxSpace.__init__(self, low=low, high=high, shape=(self.representation.n_latents,), dtype=dtype)
+
+
+    def reset_extent(self):
+        self.low = torch.full(self.shape, 0., dtype=self.dtype)
+        self.high = torch.full(self.shape, 0., dtype=self.dtype)
 
     def map(self, observations, preprocess=None, dataset_type="potential", **kwargs):
 
@@ -54,12 +60,14 @@ class TorchNNBoxGoalSpace(BoxSpace):
 
     def calc_distance(self, embedding_a, embedding_b, **kwargs):
         scale = (self.high - self.low).to(self.representation.config.device)
+        scale[torch.where(scale == 0.0)] = 1.0
         low = self.low.to(self.representation.config.device)
         # L2 by default
         embedding_a = (embedding_a - low) / scale
         embedding_b = (embedding_b - low) / scale
         dist = (embedding_a - embedding_b).pow(2).sum(-1).sqrt()
         return dist
+
 
     def sample(self):
         return BoxSpace.sample(self).to(self.representation.config.device)
@@ -78,7 +86,6 @@ class TorchNNBoxGoalSpace(BoxSpace):
 
     @staticmethod
     def load(filepath, map_location='cpu'):
-
         goal_space_checkpoint = torch.load(filepath, map_location=map_location)
         representation_cls = goal_space_checkpoint["representation_cls"]
         representation_config = goal_space_checkpoint["representation"]["config"]
@@ -114,7 +121,9 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
 
         # Pi: source policy parameters config
         default_config.source_policy_selection = Dict()
-        default_config.source_policy_selection.type = 'optimal'  # either: 'optimal', 'random'
+        default_config.source_policy_selection.type = 'optimal'  # either: 'optimal', 'random', 'kNN_elite'
+        # default_config.source_policy_selection.type = 'kNN_elite'
+        # default_config.source_policy_selection.k = 50
 
         # Opt: Optimizer to reach goal
         default_config.reach_goal_optim_steps = 10
@@ -128,9 +137,15 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
 
         default_config.goalspace_training.train_dataset.filepath = None
         default_config.goalspace_training.train_dataset.config = Dict()
+        default_config.goalspace_training.train_dataset.preprocess = None
+        default_config.goalspace_training.train_dataset.transform = None
+        default_config.goalspace_training.train_dataset.target_transform = None
 
         default_config.goalspace_training.valid_dataset.filepath = None
         default_config.goalspace_training.valid_dataset.config = Dict()
+        default_config.goalspace_training.valid_dataset.preprocess = None
+        default_config.goalspace_training.valid_dataset.transform = None
+        default_config.goalspace_training.valid_dataset.target_transform = None
 
         default_config.goalspace_training.train_dataloader.batch_size = 64
         default_config.goalspace_training.train_dataloader.num_workers = 0
@@ -157,7 +172,11 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
 
         # prepare train and valid datasets
         dataset_cls = torch_dataset.HDF5Dataset
-        train_dataset = dataset_cls(self.config.goalspace_training.train_dataset.filepath, config=self.config.goalspace_training.train_dataset.config)
+        train_dataset = dataset_cls(self.config.goalspace_training.train_dataset.filepath,
+                                    preprocess=self.config.goalspace_training.train_dataset.preprocess,
+                                    transform=self.config.goalspace_training.train_dataset.transform,
+                                    target_transform=None,
+                                    config=self.config.goalspace_training.train_dataset.config)
         weights_train_dataset = [1.]
         weighted_train_sampler = WeightedRandomSampler(weights_train_dataset, 1)
         train_loader = DataLoader(train_dataset,
@@ -168,7 +187,11 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
                                   collate_fn=self.config.goalspace_training.train_dataloader.collate_fn)
 
         self.config.goalspace_training.dataset_config.data_augmentation = False
-        valid_dataset = dataset_cls(self.config.goalspace_training.valid_dataset.filepath, config=self.config.goalspace_training.valid_dataset.config)
+        valid_dataset = dataset_cls(self.config.goalspace_training.valid_dataset.filepath,
+                                    preprocess=self.config.goalspace_training.valid_dataset.preprocess,
+                                    transform=self.config.goalspace_training.valid_dataset.transform,
+                                    target_transform=None,
+                                    config=self.config.goalspace_training.valid_dataset.config)
         weights_valid_dataset = [1.]
         weighted_valid_sampler = WeightedRandomSampler(weights_valid_dataset, 1)
         valid_loader = DataLoader(valid_dataset,
@@ -183,11 +206,12 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
             progress_bar.update(run_idx)
 
             # recreate train/valid datasets from saved exploration_db
+            self.goal_space.representation.eval()
+            self.goal_space.reset_extent()
             for run_data_idx in self.db.run_ids:
                 run_data = self.db.get_run_data(run_data_idx)
 
                 # Update goal library with latest representation (and goal space extent when autoexpand) in case was not done before saving
-                self.goal_space.representation.eval()
                 with torch.no_grad():
                     self.goal_library[run_data_idx] = self.goal_space.map(run_data.observations, preprocess=self.config.goalspace_preprocess,
                                                                          dataset_type=self.config.goalspace_training.dataset_type).detach()
@@ -220,6 +244,10 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
                 with torch.no_grad():
                     observations = self.system.run()
                     reached_goal = self.goal_space.map(observations, preprocess=self.config.goalspace_preprocess, dataset_type=self.config.goalspace_training.dataset_type)
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
                 optim_step_idx = 0
                 dist_to_target = None
@@ -241,7 +269,7 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
                 # Optimization toward target goal
                 if isinstance(self.system, torch.nn.Module) and self.config.reach_goal_optim_steps > 0:
                     train_losses = self.system.optimize(self.config.reach_goal_optim_steps,
-                                                        lambda obs: self.goal_space.calc_distance(target_goal,
+                                                        lambda obs: 1000.0*self.goal_space.calc_distance(target_goal,
                                                                                                   self.goal_space.map(
                                                                                                       obs,
                                                                                                       preprocess=self.config.goalspace_preprocess,
@@ -251,44 +279,33 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
                     policy_parameters['initialization'] = self.system.initialization_parameters
                     policy_parameters['update_rule'] = self.system.update_rule_parameters
 
+                self.goal_space.representation.eval()
                 with torch.no_grad():
                     observations = self.system.run()
                     reached_goal = self.goal_space.map(observations, preprocess=self.config.goalspace_preprocess, dataset_type=self.config.goalspace_training.dataset_type)
                     loss = self.goal_space.calc_distance(target_goal, reached_goal)
                     dist_to_target = loss.item()
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
 
-            # save results
-            self.db.add_run_data(id=run_idx,
-                                 policy_parameters=policy_parameters,
-                                 observations=observations,
-                                 source_policy_idx=source_policy_idx,
-                                 target_goal=target_goal,
-                                 reached_goal=reached_goal,
-                                 dist_to_target=dist_to_target)
 
-            if self.db.config.save_rollout_render:
-                self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
-                                                                                   f'run_{run_idx}_rollout'))
-
-
-            # add policy and reached goal into the libraries
-            # do it after the run data is saved to not save them if there is an error during the saving
-            self.policy_library.append(policy_parameters)
-            self.goal_library = torch.cat([self.goal_library, reached_goal.reshape(1, -1).detach()])
 
             # append new discovery to train/valid dataset
             if self.config.goalspace_training.dataset_n_timepoints == 1:
                 t_slide = 0
             else:
                 t_slide = observations.potentials.shape[0] // (self.config.goalspace_training.dataset_n_timepoints - 1)
+
             for t_idx in range(self.config.goalspace_training.dataset_n_timepoints):
                 timepoint = max(-1 - t_idx * t_slide, -observations.potentials.shape[0])
 
                 discrete_potential = observations.potentials[timepoint].detach().argmax(0)
                 is_dead = torch.all(discrete_potential.eq(discrete_potential[0, 0, 0]))  # if all values converge to same block, we consider the output dead
                 if is_dead: # if dead we dont add to the training database
-                    continue
+                    break
 
                 if self.config.goalspace_training.dataset_type == "potential":
                     data = observations.potentials[timepoint]
@@ -306,65 +323,87 @@ class IMGEP_OGL_Explorer(IMGEPExplorer):
                 else:
                     train_loader.dataset.add_data(data, torch.tensor([0]))
 
+            # Training stage
+            if (run_idx % self.config.goalspace_training.frequency == 0) and (run_idx > 0) and (len(train_loader.dataset) > 0):
+                stage_idx = run_idx // self.config.goalspace_training.frequency
+                representation_filepath = os.path.join(self.goal_space.representation.config.checkpoint.folder,
+                                                       'stage_{:06d}_weight_model.pth'.format(stage_idx))
+
+                # Importance Sampling
+                if stage_idx == 1:
+                    weights = [1.0 / len(train_loader.dataset)] * len(train_loader.dataset)
+                    train_loader.sampler.num_samples = len(weights)
+                    train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
+
+                elif stage_idx > 1:
+                    weights = [(1.0 - self.config.goalspace_training.importance_sampling_last) / self.train_dset_laststage_counter] \
+                              * self.train_dset_laststage_counter
+                    weights += ([self.config.goalspace_training.importance_sampling_last / (
+                                len(train_loader.dataset) - self.train_dset_laststage_counter)] * (
+                                            len(train_loader.dataset) - self.train_dset_laststage_counter))
+                    train_loader.sampler.num_samples = len(weights)
+                    train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
+
+                valid_weights = [1.0 / len(valid_loader.dataset)] * len(valid_loader.dataset)
+                valid_loader.sampler.num_samples = len(valid_weights)
+                valid_loader.sampler.weights = torch.tensor(valid_weights, dtype=torch.double)
+
+                # Training
+                torch.backends.cudnn.enabled = True
+                self.goal_space.representation.train()
+                # we replace the number of epochs as the number of batch passes, as the dataset size augment with time!
+                training_config = deepcopy(self.config.goalspace_training)
+                #training_config.n_epochs = max(5, training_config.n_epochs // len(train_loader))
+                self.goal_space.representation.run_training(train_loader=train_loader,
+                                                            training_config=training_config,
+                                                            valid_loader=valid_loader)
+                torch.backends.cudnn.enabled = False
+
+                # update counters
+                self.train_dset_laststage_counter = len(train_loader.dataset)
+
+                # Save the trained representation
+                self.goal_space.representation.save(representation_filepath)
+
+                # Update goal library with latest representation (and goal space extent when autoexpand)
+                self.goal_space.representation.eval()
+                with torch.no_grad():
+                    # reset extent
+                    self.goal_space.reset_extent()
+                    # reproject discoveries
+                    for old_run_idx in self.db.run_ids:
+                        self.goal_library[old_run_idx] = self.goal_space.map(self.db.get_run_data(old_run_idx).observations,
+                                                                             preprocess=self.config.goalspace_preprocess,
+                                                                             dataset_type=self.config.goalspace_training.dataset_type).detach()
+                # save after training
+                if (save_filepath is not None) and (os.path.exists(save_filepath)):
+                    self.save(save_filepath)
+
+            # save results
+            self.db.add_run_data(id=run_idx,
+                                 policy_parameters=policy_parameters,
+                                 observations=observations,
+                                 source_policy_idx=source_policy_idx,
+                                 target_goal=target_goal,
+                                 reached_goal=reached_goal,
+                                 dist_to_target=dist_to_target,
+                                 policy_score=policy_score)
+
+            if self.db.config.save_rollout_render:
+                self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
+                                                                               f'run_{run_idx}_rollout'))
+
+
+            # add policy and reached goal into the libraries
+            # do it after the run data is saved to not save them if there is an error during the saving
+            self.policy_library.append(policy_parameters)
+            self.policy_scores.append(policy_score)
+            self.goal_library = torch.cat([self.goal_library, reached_goal.reshape(1, -1).detach()])
 
             # save explorer
             if (save_frequency is not None) and (run_idx % save_frequency == 0):
                 if (save_filepath is not None) and (os.path.exists(save_filepath)):
                     self.save(save_filepath)
-
-            # Training stage
-            if run_idx % self.config.goalspace_training.frequency == 0 and len(train_loader.dataset) > 0:
-                stage_idx = run_idx // self.config.goalspace_training.frequency
-                representation_filepath = os.path.join(self.goal_space.representation.config.checkpoint.folder,
-                                                       'stage_{:06d}_weight_model.pth'.format(stage_idx))
-
-                # current trick to avoid redoing training stage when already done
-                if not os.path.exists(representation_filepath):
-
-                    # Importance Sampling
-                    if stage_idx == 1:
-                        weights = [1.0 / len(train_loader.dataset)] * len(train_loader.dataset)
-                        train_loader.sampler.num_samples = len(weights)
-                        train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
-                    elif stage_idx > 1:
-                        weights = [(
-                                               1.0 - self.config.goalspace_training.importance_sampling_last) / self.train_dset_laststage_counter] * self.train_dset_laststage_counter
-                        weights += ([self.config.goalspace_training.importance_sampling_last / (
-                                    len(train_loader.dataset) - self.train_dset_laststage_counter)] * (
-                                                len(train_loader.dataset) - self.train_dset_laststage_counter))
-                        train_loader.sampler.num_samples = len(weights)
-                        train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
-
-                    valid_weights = [1.0 / len(valid_loader.dataset)] * len(valid_loader.dataset)
-                    valid_loader.sampler.num_samples = len(valid_weights)
-                    valid_loader.sampler.weights = torch.tensor(valid_weights, dtype=torch.double)
-
-                    # Training
-                    torch.backends.cudnn.enabled = True
-                    self.goal_space.representation.train()
-                    self.goal_space.representation.run_training(train_loader=train_loader,
-                                                                training_config=self.config.goalspace_training,
-                                                                valid_loader=valid_loader)
-                    torch.backends.cudnn.enabled = False
-
-                    # update counters
-                    self.train_dset_laststage_counter = len(train_loader.dataset)
-
-                    # Save the trained representation
-                    self.goal_space.representation.save(representation_filepath)
-
-                    # Update goal library with latest representation (and goal space extent when autoexpand)
-                    self.goal_space.representation.eval()
-                    with torch.no_grad():
-                        for old_run_idx in self.db.run_ids:
-                            self.goal_library[old_run_idx] = self.goal_space.map(
-                                self.db.get_run_data(old_run_idx).observations,
-                                preprocess=self.config.goalspace_preprocess,
-                                dataset_type=self.config.goalspace_training.dataset_type).detach()
-
-                    # save after training
-                    if (save_filepath is not None) and (os.path.exists(save_filepath)):
-                        self.save(save_filepath)
 
             # increment run_idx
             run_idx += 1

@@ -20,6 +20,7 @@ class BoxGoalSpace(BoxSpace):
                 assert shape == self.representation.n_latents
         BoxSpace.__init__(self, low=low, high=high, shape=(self.representation.n_latents,), dtype=dtype)
 
+
     def map(self, observations, **kwargs):
         embedding = self.representation.calc(observations, **kwargs)
         if self.autoexpand:
@@ -37,6 +38,7 @@ class BoxGoalSpace(BoxSpace):
 
     def calc_distance(self, embedding_a, embedding_b, **kwargs):
         scale = (self.high - self.low).to(self.representation.config.device)
+        scale[torch.where(scale == 0.0)] = 1.0
         low = self.low.to(self.representation.config.device)
         # L2 by default
         embedding_a = (embedding_a - low) / scale
@@ -77,14 +79,16 @@ class IMGEPExplorer(Explorer):
 
         # Pi: source policy parameters config
         default_config.source_policy_selection = Dict()
-        default_config.source_policy_selection.type = 'optimal'  # either: 'optimal', 'random'
+        default_config.source_policy_selection.type = 'optimal'
+        # default_config.source_policy_selection.type = 'kNN_elite'
+        # default_config.source_policy_selection.k = 50
 
         # Opt: Optimizer to reach goal
         default_config.reach_goal_optim_steps = 10
 
         return default_config
 
-    def __init__(self, system, explorationdb, goal_space, config={}, **kwargs):
+    def __init__(self, system, explorationdb, goal_space, config={}, score_function=None, **kwargs):
         super().__init__(system=system, explorationdb=explorationdb, config=config, **kwargs)
 
         self.goal_space = goal_space
@@ -95,6 +99,12 @@ class IMGEPExplorer(Explorer):
         # initialize goal library
         self.goal_library = torch.empty((0,) + self.goal_space.shape).to(self.goal_space.representation.config.device)
 
+        # save score function f(observations) = score
+        self.score_function = score_function
+
+        # initialize policy scores
+        self.policy_scores = []
+
 
     def get_source_policy_idx(self, target_goal):
 
@@ -104,8 +114,32 @@ class IMGEPExplorer(Explorer):
 
             # select goal with minimal distance
             isnan_distances = torch.isnan(goal_distances)
-            canditates = torch.where(goal_distances == goal_distances[~isnan_distances].min())[0]
-            source_policy_idx = random.choice(canditates)
+            if (~isnan_distances).sum().item() == 0:
+                source_policy_idx = sample_value(('discrete', 0, len(self.goal_library) - 1))
+            else:
+                canditates = torch.where(goal_distances == goal_distances[~isnan_distances].min())[0]
+                source_policy_idx = random.choice(canditates)
+
+        elif self.config.source_policy_selection.type == "kNN_elite":
+            # get distance to other goals
+            goal_distances = self.goal_space.calc_distance(target_goal, self.goal_library)
+
+            # select k closest reached goals
+            isnan_distances = torch.isnan(goal_distances)
+            if (~isnan_distances).sum().item() == 0:
+                source_policy_idx = sample_value(('discrete', 0, len(self.goal_library) - 1))
+            else:
+                notnan_inds = torch.where(~isnan_distances)[0]
+                notnan_distances = goal_distances[~isnan_distances]
+                _, rel_candidates = notnan_distances.topk(min(self.config.source_policy_selection.k, len(notnan_distances)), largest=False)
+                candidates = notnan_inds[rel_candidates]
+
+                # select elite among those k
+                candidate_scores = torch.tensor(self.policy_scores)[candidates]
+                isnan_scores = torch.isnan(candidate_scores)
+                source_policy_candidates = torch.where(candidate_scores == candidate_scores[~isnan_scores].max())[0]
+                source_policy_idx = random.choice(candidates[source_policy_candidates])
+
 
         elif self.config.source_policy_selection.type == 'random':
             source_policy_idx = sample_value(('discrete', 0, len(self.goal_library) - 1))
@@ -146,6 +180,10 @@ class IMGEPExplorer(Explorer):
                 with torch.no_grad():
                     observations = self.system.run()
                     reached_goal = self.goal_space.map(observations)
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
                 optim_step_idx = 0
                 dist_to_target = None
@@ -177,6 +215,10 @@ class IMGEPExplorer(Explorer):
                     reached_goal = self.goal_space.map(observations)
                     loss = self.goal_space.calc_distance(target_goal, reached_goal)
                     dist_to_target = loss.item()
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
             # save results
             self.db.add_run_data(id=run_idx,
@@ -185,7 +227,8 @@ class IMGEPExplorer(Explorer):
                                  source_policy_idx=source_policy_idx,
                                  target_goal=target_goal,
                                  reached_goal=reached_goal,
-                                 dist_to_target=dist_to_target)
+                                 dist_to_target=dist_to_target,
+                                 policy_score=policy_score)
 
             if self.db.config.save_rollout_render:
                 self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
@@ -195,6 +238,7 @@ class IMGEPExplorer(Explorer):
             # add policy and reached goal into the libraries
             # do it after the run data is saved to not save them if there is an error during the saving
             self.policy_library.append(policy_parameters)
+            self.policy_scores.append(policy_score)
             self.goal_library = torch.cat([self.goal_library, reached_goal.reshape(1, -1)])
 
             if (save_frequency is not None) and (run_idx % save_frequency == 0):
@@ -207,7 +251,10 @@ class IMGEPExplorer(Explorer):
 
     def save(self, filepath):
         self.goal_space.save(filepath+"goal_space.pickle")
-        tmp_data = self.goal_space
+        tmp_goal_space = self.goal_space
         self.goal_space = None
+        tmp_score_function = self.score_function
+        self.score_function = None
         Explorer.save(self, filepath+"explorer.pickle")
-        self.goal_space = tmp_data
+        self.goal_space = tmp_goal_space
+        self.score_function = tmp_score_function

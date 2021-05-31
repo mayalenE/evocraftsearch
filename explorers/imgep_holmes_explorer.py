@@ -11,7 +11,7 @@ import numbers
 from tqdm import tqdm
 import os
 from exputils.seeding import set_seed
-
+from copy import deepcopy
 
 class HolmesGoalSpace(DictSpace):
 
@@ -21,6 +21,8 @@ class HolmesGoalSpace(DictSpace):
 
         # niche selection
         default_config.niche_selection.type = 'random'
+        # default_config.niche_selection.type = 'softmax'
+        # default_config.niche_selection.beta = 5
 
         # goal selection
         default_config.goal_selection.type = 'random'
@@ -57,15 +59,25 @@ class HolmesGoalSpace(DictSpace):
             high_dict.update(high)
 
         spaces = Dict()
+        self.scores = Dict()
         for k in spaces_keys:
             spaces[k] = BoxSpace(low=low_dict[k], high=high_dict[k], shape=(representation.n_latents,), dtype=dtype)
+            self.scores[k] = 1.0 / len(spaces_keys)
         DictSpace.__init__(self, spaces=spaces)
+
+    def reset_extent(self):
+        for node_path, space in self.spaces.items():
+            space.low = torch.full(space.shape, 0., dtype=space.dtype)
+            space.high = torch.full(space.shape, 0., dtype=space.dtype)
+            self.scores[node_path] = 1.0 / len(self.spaces.keys())
 
     def update(self):
         if self.representation.network.get_leaf_pathes() != list(self.spaces.keys()):
             self.spaces = Dict()
+            self.scores = Dict()
             for leaf_path in self.representation.network.get_leaf_pathes():
                 self.spaces[leaf_path] = BoxSpace(low=0., high=0.0, shape=(self.representation.network.get_child_node(leaf_path).n_latents, ), dtype=torch.float32)
+                self.scores[leaf_path] = 1.0 / len(self.representation.network.get_leaf_pathes())
 
     def map(self, observations, preprocess=None, dataset_type="potential", **kwargs):
         if dataset_type == "potential":
@@ -79,7 +91,7 @@ class HolmesGoalSpace(DictSpace):
         for dim in squeeze_dims:
             data = data.squeeze(dim.item() + 2)
 
-        embedding = self.representation.calc_embedding(data, mode="exhaustif")
+        embedding = self.representation.calc_embedding(data)
         map_nested_dicts_modify(embedding, lambda z: z.squeeze())
 
         if self.autoexpand:
@@ -109,11 +121,31 @@ class HolmesGoalSpace(DictSpace):
 
 
     def sample(self):
-        if self.config.niche_selection.type == 'random':
+        if len(self.spaces.keys()) == 1:
+            node_path = "0"
+
+        elif self.config.niche_selection.type == 'random':
             node_path = random.choice(list(self.spaces.keys()))
-            space = self.spaces[node_path]
+
+        elif self.config.niche_selection.type == 'softmax':
+
+            values = torch.tensor(list(self.scores.values()))
+            buf = torch.exp(self.config.niche_selection.beta * (values - values.nan_to_num().max()))
+            probabilities = buf / buf.nansum()
+
+            nan_probabilities = torch.isnan(probabilities)
+            probabilities[nan_probabilities] = 0.0
+
+            if nan_probabilities.sum() == len(values):
+                node_path = random.choice(list(self.spaces.keys()))
+            else:
+                node_idx = torch.multinomial(probabilities, 1)
+                node_path = list(self.spaces.keys())[node_idx.item()]
+
         else:
             raise NotImplementedError
+
+        space = self.spaces[node_path]
 
         if self.config.goal_selection.type == 'random':
             goal = space.sample().to(self.representation.config.device)
@@ -125,8 +157,8 @@ class HolmesGoalSpace(DictSpace):
 
     def save(self, filepath):
         representation_checkpoint = self.representation.get_checkpoint()
-        low_dict = Dict.fromkeys(self.spaces.keys(), None)
-        high_dict = Dict.fromkeys(self.spaces.keys(), None)
+        low_dict = Dict.fromkeys(self.spaces.keys())
+        high_dict = Dict.fromkeys(self.spaces.keys())
         for k, space in self.spaces.items():
             low_dict[k] = space.low
             high_dict[k] = space.high
@@ -135,6 +167,7 @@ class HolmesGoalSpace(DictSpace):
                                  'autoexpand': self.autoexpand,
                                  'low': low_dict,
                                  'high': high_dict,
+                                 'scores': self.scores,
                                  }
         torch.save(goal_space_checkpoint, filepath)
 
@@ -156,12 +189,13 @@ class HolmesGoalSpace(DictSpace):
         representation.split_history = split_history
         representation.network.load_state_dict(goal_space_checkpoint["representation"]["network_state_dict"])
         representation.optimizer.load_state_dict(goal_space_checkpoint["representation"]["optimizer_state_dict"])
-        for state in representation.optimizer.state.values():
-            for k, v in state.items():
-                if torch.is_tensor(v):
-                    state[k] = v.cuda()
+        if torch.cuda.is_available():
+            for state in representation.optimizer.state.values():
+                for k, v in state.items():
+                    if torch.is_tensor(v):
+                        state[k] = v.cuda()
         goal_space = HolmesGoalSpace(representation=representation, low=goal_space_checkpoint["low"], high=goal_space_checkpoint["high"], autoexpand=goal_space_checkpoint["autoexpand"])
-
+        goal_space.scores = goal_space_checkpoint["scores"]
         return goal_space
 
 
@@ -193,7 +227,7 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
 
         return default_config
 
-    def __init__(self, system, explorationdb, goal_space, config={}, **kwargs):
+    def __init__(self, system, explorationdb, goal_space, score_function=None, config={}, **kwargs):
         Explorer.__init__(self, system=system, explorationdb=explorationdb, config=config, **kwargs)
 
         self.goal_space = goal_space
@@ -205,6 +239,12 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
         self.goal_library = Dict()
         self.goal_library["0"] = torch.empty((0,) + self.goal_space.spaces["0"].shape)
 
+        # save score function f(observations) = score
+        self.score_function = score_function
+
+        # initialize policy scores
+        self.policy_scores = []
+
 
     def get_source_policy_idx(self, target_space, target_goal):
 
@@ -214,8 +254,32 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
 
             # select goal with minimal distance
             isnan_distances = torch.isnan(goal_distances)
-            canditates = torch.where(goal_distances == goal_distances[~isnan_distances].min())[0]
-            source_policy_idx = random.choice(canditates)
+            if (~isnan_distances).sum().item() == 0:
+                source_policy_idx = sample_value(('discrete', 0, len(self.goal_library[target_space]) - 1))
+            else:
+                canditates = torch.where(goal_distances == goal_distances[~isnan_distances].min())[0]
+                source_policy_idx = random.choice(canditates)
+
+        elif self.config.source_policy_selection.type == "kNN_elite":
+            # get distance to other goals
+            goal_distances = self.goal_space.calc_distance(target_goal, self.goal_library, target_space)
+
+            # select k closest reached goals
+            isnan_distances = torch.isnan(goal_distances)
+            if (~isnan_distances).sum().item() == 0:
+                source_policy_idx = sample_value(('discrete', 0, len(self.goal_library[target_space]) - 1))
+            else:
+                notnan_inds = torch.where(~isnan_distances)[0]
+                notnan_distances = goal_distances[~isnan_distances]
+                _, rel_candidates = notnan_distances.topk(min(self.config.source_policy_selection.k, len(notnan_distances)), largest=False)
+                candidates = notnan_inds[rel_candidates]
+
+                # select elite among those k
+                candidate_scores = torch.tensor(self.policy_scores)[candidates]
+                isnan_scores = torch.isnan(candidate_scores)
+                source_policy_candidates = torch.where(candidate_scores == candidate_scores[~isnan_scores].max())[0]
+                source_policy_idx = random.choice(candidates[source_policy_candidates])
+
 
         elif self.config.source_policy_selection.type == 'random':
             source_policy_idx = sample_value(('discrete', 0, len(self.goal_library[target_space]) - 1))
@@ -233,7 +297,11 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
 
         # prepare train and valid datasets
         dataset_cls = torch_dataset.HDF5Dataset
-        train_dataset = dataset_cls(self.config.goalspace_training.train_dataset.filepath, config=self.config.goalspace_training.train_dataset.config)
+        train_dataset = dataset_cls(self.config.goalspace_training.train_dataset.filepath,
+                                    preprocess=self.config.goalspace_training.train_dataset.preprocess,
+                                    transform=self.config.goalspace_training.train_dataset.transform,
+                                    target_transform=None,
+                                    config=self.config.goalspace_training.train_dataset.config)
         weights_train_dataset = [1.]
         weighted_train_sampler = WeightedRandomSampler(weights_train_dataset, 1)
         train_loader = DataLoader(train_dataset,
@@ -244,7 +312,11 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                                   collate_fn=self.config.goalspace_training.train_dataloader.collate_fn)
 
         self.config.goalspace_training.dataset_config.data_augmentation = False
-        valid_dataset = dataset_cls(self.config.goalspace_training.valid_dataset.filepath, config=self.config.goalspace_training.valid_dataset.config)
+        valid_dataset = dataset_cls(self.config.goalspace_training.valid_dataset.filepath,
+                                    preprocess=self.config.goalspace_training.valid_dataset.preprocess,
+                                    transform=self.config.goalspace_training.valid_dataset.transform,
+                                    target_transform=None,
+                                    config=self.config.goalspace_training.valid_dataset.config)
         weights_valid_dataset = [1.]
         weighted_valid_sampler = WeightedRandomSampler(weights_valid_dataset, 1)
         valid_loader = DataLoader(valid_dataset,
@@ -268,7 +340,8 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
 
             map_nested_dicts_modify(self.goal_library, lambda node_goal_library: node_goal_library.to(self.goal_space.representation.config.device))
 
-            # recreate train/valid datasets from saved exploration_db
+
+            self.goal_space.reset_extent()
             for run_data_idx in self.db.run_ids:
                 run_data = self.db.get_run_data(run_data_idx)
 
@@ -279,12 +352,23 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                     map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat(
                         [ob1[:run_data_idx], ob2.reshape(1, -1).detach(), ob1[run_data_idx + 1:]]))
 
+            ## Update goal space scores for softmax sampling
+            goal_space_scores = Dict()
+            for k in self.goal_space.scores.keys():
+                cur_score = 0
+                for old_run_idx in self.db.run_ids:
+                    if not torch.isnan(self.goal_library[k][old_run_idx]).all():
+                        cur_score += self.policy_scores[old_run_idx]
+                goal_space_scores[k] = cur_score / len(self.goal_library[k])
+            self.goal_space.scores = goal_space_scores
+
             assert len(self.policy_library) == len(list(self.goal_library.values())[0]) == len(self.db.run_ids)
 
         else:
             self.policy_library = []
             self.goal_library = Dict()
             self.goal_library["0"] = torch.empty((0,) + self.goal_space.spaces["0"].shape).to(self.goal_space.representation.config.device)
+            self.train_dset_laststage_counter = 0
             run_idx = 0
 
 
@@ -305,6 +389,10 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                 with torch.no_grad():
                     observations = self.system.run()
                     reached_goal = self.goal_space.map(observations, preprocess=self.config.goalspace_preprocess, dataset_type=self.config.goalspace_training.dataset_type)
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
                 optim_step_idx = 0
                 dist_to_target = None
@@ -326,7 +414,7 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                 # Optimization toward target goal
                 if isinstance(self.system, torch.nn.Module) and self.config.reach_goal_optim_steps > 0:
                     train_losses = self.system.optimize(self.config.reach_goal_optim_steps,
-                                                        lambda obs: self.goal_space.calc_distance(target_goal, 
+                                                        lambda obs: 1000.0*self.goal_space.calc_distance(target_goal,
                                                                                                   self.goal_space.map(
                                                                                                       obs, 
                                                                                                       preprocess=self.config.goalspace_preprocess,
@@ -342,26 +430,10 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                     reached_goal = self.goal_space.map(observations, preprocess=self.config.goalspace_preprocess, dataset_type=self.config.goalspace_training.dataset_type)
                     loss = self.goal_space.calc_distance(target_goal, reached_goal, target_space)
                     dist_to_target = loss.item()
-
-
-            # save results
-            self.db.add_run_data(id=run_idx,
-                                 policy_parameters=policy_parameters,
-                                 observations=observations,
-                                 source_policy_idx=source_policy_idx,
-                                 target_goal=target_goal,
-                                 reached_goal=reached_goal,
-                                 dist_to_target=dist_to_target)
-
-            if self.db.config.save_rollout_render:
-                self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
-                                                                                   f'run_{run_idx}_rollout'))
-
-
-            # add policy and reached goal into the libraries
-            # do it after the run data is saved to not save them if there is an error during the saving
-            self.policy_library.append(policy_parameters)
-            map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat([ob1, ob2.reshape(1, -1).detach()]))
+                    if self.score_function is not None:
+                        policy_score = self.score_function.map(observations).item()
+                    else:
+                        policy_score = 0.0
 
             # append new discovery to train/valid dataset
             if self.config.goalspace_training.dataset_n_timepoints == 1:
@@ -374,7 +446,7 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                 discrete_potential = observations.potentials[timepoint].detach().argmax(0)
                 is_dead = torch.all(discrete_potential.eq(discrete_potential[0, 0, 0]))  # if all values converge to same block, we consider the output dead
                 if is_dead: # if dead we dont add to the training database
-                    continue
+                    break
 
                 if self.config.goalspace_training.dataset_type == "potential":
                     data = observations.potentials[timepoint]
@@ -393,76 +465,108 @@ class IMGEP_HOLMES_Explorer(IMGEP_OGL_Explorer):
                     train_loader.dataset.add_data(data, torch.tensor([0]))
 
 
-            # save explorer
-            if (save_frequency is not None) and (run_idx % save_frequency == 0):
-                if (save_filepath is not None) and (os.path.exists(save_filepath)):
-                    self.save(save_filepath)
-
             # Training stage
-            if run_idx % self.config.goalspace_training.frequency == 0 and len(train_loader.dataset) > 0:
+            if (run_idx % self.config.goalspace_training.frequency == 0) and (run_idx > 0) and (len(train_loader.dataset) > 0):
                 stage_idx = run_idx // self.config.goalspace_training.frequency
                 representation_filepath = os.path.join(self.goal_space.representation.config.checkpoint.folder,
                                                        'stage_{:06d}_weight_model.pth'.format(stage_idx))
 
-                # current trick to avoid redoing training stage when already done
-                if not os.path.exists(representation_filepath):
+                # Importance Sampling
+                if stage_idx == 1:
+                    weights = [1.0 / len(train_loader.dataset)] * len(train_loader.dataset)
+                    train_loader.sampler.num_samples = len(weights)
+                    train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
+                elif stage_idx > 1:
+                    weights = [(1.0 - self.config.goalspace_training.importance_sampling_last) / self.train_dset_laststage_counter] \
+                              * self.train_dset_laststage_counter
+                    weights += ([self.config.goalspace_training.importance_sampling_last / (
+                                len(train_loader.dataset) - self.train_dset_laststage_counter)] * (
+                                            len(train_loader.dataset) - self.train_dset_laststage_counter))
+                    train_loader.sampler.num_samples = len(weights)
+                    train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
 
-                    # Importance Sampling
-                    if stage_idx == 1:
-                        weights = [1.0 / len(train_loader.dataset)] * len(train_loader.dataset)
-                        train_loader.sampler.num_samples = len(weights)
-                        train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
-                    elif stage_idx > 1:
-                        weights = [(
-                                               1.0 - self.config.goalspace_training.importance_sampling_last) / self.train_dset_laststage_counter] * self.train_dset_laststage_counter
-                        weights += ([self.config.goalspace_training.importance_sampling_last / (
-                                    len(train_loader.dataset) - self.train_dset_laststage_counter)] * (
-                                                len(train_loader.dataset) - self.train_dset_laststage_counter))
-                        train_loader.sampler.num_samples = len(weights)
-                        train_loader.sampler.weights = torch.tensor(weights, dtype=torch.double)
+                valid_weights = [1.0 / len(valid_loader.dataset)] * len(valid_loader.dataset)
+                valid_loader.sampler.num_samples = len(valid_weights)
+                valid_loader.sampler.weights = torch.tensor(valid_weights, dtype=torch.double)
 
-                    valid_weights = [1.0 / len(valid_loader.dataset)] * len(valid_loader.dataset)
-                    valid_loader.sampler.num_samples = len(valid_weights)
-                    valid_loader.sampler.weights = torch.tensor(valid_weights, dtype=torch.double)
+                # Training
+                torch.backends.cudnn.enabled = True
+                self.goal_space.representation.train()
+                # we replace the number of epochs as the number of batch passes, as the dataset size augment with time!
+                training_config = deepcopy(self.config.goalspace_training)
+                #training_config.n_epochs = max(5, training_config.n_epochs // len(train_loader))
+                self.goal_space.representation.run_training(train_loader=train_loader,
+                                                            training_config=training_config,
+                                                            valid_loader=valid_loader)
+                torch.backends.cudnn.enabled = False
 
-                    # Training
-                    torch.backends.cudnn.enabled = True
-                    self.goal_space.representation.train()
-                    self.goal_space.representation.run_training(train_loader=train_loader,
-                                                                training_config=self.config.goalspace_training,
-                                                                valid_loader=valid_loader)
-                    torch.backends.cudnn.enabled = False
+                # update counters
+                self.train_dset_laststage_counter = len(train_loader.dataset)
 
-                    # update counters
-                    self.train_dset_laststage_counter = len(train_loader.dataset)
+                # Save the trained representation
+                self.goal_space.representation.save(representation_filepath)
 
-                    # Save the trained representation
-                    self.goal_space.representation.save(representation_filepath)
+                # Update goal space and goal library
+                self.goal_space.update()  # if holmes has splitted will update goal space keys accordingly
+                self.goal_space.representation.eval()
 
-                    # Update goal space and goal library
-                    self.goal_space.update()  # if holmes has splitted will update goal space keys accordingly
-                    self.goal_space.representation.eval()
-                    ## update library and goal space extent with discoveries projected with the updated representation
-                    if list(self.goal_space.spaces.keys()) != list(self.goal_library.keys()):
-                        self.goal_library = Dict()
-                        for node_path, space in self.goal_space.spaces.items():
-                            self.goal_library[node_path] = torch.empty((0,) + space.shape).to(
-                                self.goal_space.representation.config.device)
-                    with torch.no_grad():
-                        for old_run_idx in self.db.run_ids:
-                            reached_goal = self.goal_space.map(self.db.get_run_data(old_run_idx).observations,
-                                                               preprocess=self.config.goalspace_preprocess,
-                                                               dataset_type=self.config.goalspace_training.dataset_type)
-                            map_nested_dicts_modify_with_other(self.goal_library, reached_goal,
-                                                               lambda ob1, ob2: torch.cat([ob1[:old_run_idx],
-                                                                                           ob2.reshape(1,
-                                                                                                       -1).detach(),
-                                                                                           ob1[
-                                                                                           old_run_idx + 1:]]))
+                ## update library and goal space extent with discoveries projected with the updated representation
+                if list(self.goal_space.spaces.keys()) != list(self.goal_library.keys()):
+                    self.goal_library = Dict()
+                    for node_path, space in self.goal_space.spaces.items():
+                        self.goal_library[node_path] = torch.empty((0,) + space.shape).to(self.goal_space.representation.config.device)
+                with torch.no_grad():
+                    self.goal_space.reset_extent()
+                    for old_run_idx in self.db.run_ids:
+                        reached_goal = self.goal_space.map(self.db.get_run_data(old_run_idx).observations,
+                                                           preprocess=self.config.goalspace_preprocess,
+                                                           dataset_type=self.config.goalspace_training.dataset_type)
+                        map_nested_dicts_modify_with_other(self.goal_library, reached_goal,
+                                                           lambda ob1, ob2: torch.cat([ob1[:old_run_idx],
+                                                                                       ob2.reshape(1,
+                                                                                                   -1).detach(),
+                                                                                       ob1[
+                                                                                       old_run_idx + 1:]]))
 
-                    # save after training
-                    if (save_filepath is not None) and (os.path.exists(save_filepath)):
-                        self.save(save_filepath)
+                ## Update goal space scores for softmax sampling
+                goal_space_scores = Dict()
+                for k in self.goal_space.scores.keys():
+                    cur_score = 0
+                    for old_run_idx in self.db.run_ids:
+                        if not torch.isnan(self.goal_library[k][old_run_idx]).all():
+                            cur_score += self.policy_scores[old_run_idx]
+                    goal_space_scores[k] = cur_score / len(self.goal_library[k])
+                self.goal_space.scores = goal_space_scores
+
+                # save after training
+                if (save_filepath is not None) and (os.path.exists(save_filepath)):
+                    self.save(save_filepath)
+
+            # save results
+            self.db.add_run_data(id=run_idx,
+                                 policy_parameters=policy_parameters,
+                                 observations=observations,
+                                 source_policy_idx=source_policy_idx,
+                                 target_goal=target_goal,
+                                 reached_goal=reached_goal,
+                                 dist_to_target=dist_to_target,
+                                 policy_score=policy_score)
+
+            if self.db.config.save_rollout_render:
+                self.system.render_rollout(observations, filepath=os.path.join(self.db.config.db_directory,
+                                                                               f'run_{run_idx}_rollout'))
+
+            # add policy and reached goal into the libraries
+            # do it after the run data is saved to not save them if there is an error during the saving
+            self.policy_library.append(policy_parameters)
+            self.policy_scores.append(policy_score)
+            map_nested_dicts_modify_with_other(self.goal_library, reached_goal, lambda ob1, ob2: torch.cat(
+                [ob1, ob2.reshape(1, -1).detach()]))
+
+            # save explorer
+            if (save_frequency is not None) and (run_idx % save_frequency == 0):
+                if (save_filepath is not None) and (os.path.exists(save_filepath)):
+                    self.save(save_filepath)
 
             # increment run_idx
             run_idx += 1

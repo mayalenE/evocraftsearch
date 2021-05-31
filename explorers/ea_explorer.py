@@ -6,6 +6,7 @@ import torch
 import random
 import sys
 import os
+from exputils.seeding import set_seed
 
 class EAExplorer(Explorer):
     """
@@ -21,6 +22,7 @@ class EAExplorer(Explorer):
     def default_config():
         default_config = Dict()
         # base config
+        default_config.seed = None
 
         # EA:
         default_config.population_size = 50
@@ -63,18 +65,19 @@ class EAExplorer(Explorer):
         # Optimization toward target goal
         if isinstance(self.system, torch.nn.Module) and self.config.fitness_optim_steps > 0:
 
-            train_losses = self.system.optimize(self.config.fitness_optim_steps, lambda obs: - self.output_fitness.calc(obs))
+            train_losses = self.system.optimize(self.config.fitness_optim_steps, lambda obs: - self.output_fitness.map(obs))
+            print(train_losses)
             ind_policy['initialization'] = self.system.initialization_parameters
             ind_policy['update_rule'] = self.system.update_rule_parameters
 
         with torch.no_grad():
             observations = self.system.run()
-            fitness = self.output_fitness.calc(observations).item()
+            fitness = self.output_fitness.map(observations).item()
 
         return ind_policy, observations, fitness
 
 
-    def run(self, n_exploration_runs, continue_existing_run=False):
+    def run(self, n_exploration_runs, continue_existing_run=False, save_frequency=None, save_filepath=None):
         # n_exploration_runs is number of generations
         # self.config.population_size is number of individuals per generation
 
@@ -95,16 +98,18 @@ class EAExplorer(Explorer):
 
         while run_idx < n_exploration_runs:
 
+            set_seed(100000 * self.config.seed + run_idx)
+
             print(f"generation number {run_idx}")
             # select the next generation
             offspring = self.select_tournament(tournsize=self.config.tournament_size)
 
             # apply crossover
             print("apply crossover")
-            for i, (x1, x2) in enumerate(zip(offspring[::2], offspring[1::2])):
-                child1_policy, child2_policy = self.system.crossover_policy_parameters(x1.policy, x2.policy)
-                offspring[2*i].policy = child1_policy
-                offspring[2*i+1].policy = child2_policy
+            # for i, (x1, x2) in enumerate(zip(offspring[::2], offspring[1::2])):
+            #     child1_policy, child2_policy = self.system.crossover_policy_parameters(x1.policy, x2.policy)
+            #     offspring[2*i].policy = child1_policy
+            #     offspring[2*i+1].policy = child2_policy
 
 
             # apply mutation
@@ -131,6 +136,11 @@ class EAExplorer(Explorer):
                                                                                    f'run_{run_idx}_rollout'))
                 evaluated_individual = Dict(idx=run_idx, policy=ind_policy, fitness=fitness)
                 offspring[relative_idx] = evaluated_individual
+
+                if (save_frequency is not None) and (run_idx % save_frequency == 0):
+                    if (save_filepath is not None) and (os.path.exists(save_filepath)):
+                        self.save(save_filepath)
+
                 run_idx += 1
                 progress_bar.update(1)
 
@@ -138,3 +148,8 @@ class EAExplorer(Explorer):
             # The population is entirely replaced by the offspring
             self.population[:] = offspring
 
+    def save(self, filepath):
+        tmp_data = self.output_fitness
+        self.output_fitness = None
+        Explorer.save(self, filepath + "explorer.pickle")
+        self.output_fitness = tmp_data
