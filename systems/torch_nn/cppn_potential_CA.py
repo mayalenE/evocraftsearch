@@ -6,10 +6,10 @@ from evocraftsearch.utils.torch_utils import SphericPad
 from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, BiasedMultiBinarySpace, CPPNSpace
 from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
-from math import floor, cos, sin, pi, ceil, log
+from math import floor, cos, sin, pi, ceil, log, factorial
 from copy import deepcopy
 import warnings
-import open3d as o3d
+#import open3d as o3d
 import imageio
 import pygifsicle
 
@@ -30,15 +30,33 @@ Initialization Space:
 
 class CppnPotentialCAInitializationSpace(DictSpace):
 
-    def __init__(self, n_blocks, neat_config, occupation_ratio_range=[0.1,0.2]):
+    @staticmethod
+    def default_config():
+        default_config = Dict()
+        # intra channel probabilities
+        default_config.sample_channel = 0.8
+        default_config.mutate_channel = 0.05
+
+        # occupation ratio range
+        default_config.occupation_ratio_low = 0.1
+        default_config.occupation_ratio_high = 0.2
+        default_config.occupation_ratio_mutation_std = 0.1
+        default_config.occupation_ratio_mutation_indpb = 0.1
+
+        return default_config
+
+    def __init__(self, n_blocks, neat_config, config={}, **kwargs):
+        self.config = self.__class__.default_config()
+        self.config.update(config)
+        self.config.update(kwargs)
 
         self.n_blocks = n_blocks
         self.neat_config = neat_config
 
-        self.C = BiasedMultiBinarySpace(n=n_blocks-1, indpb_sample=0.8, indpb=0.01)
+        self.C = BiasedMultiBinarySpace(n=n_blocks-1, indpb_sample=self.config.sample_channel, indpb=self.config.mutate_channel)
         self.I = DictSpace(
                 cppn_genome=CPPNSpace(neat_config),
-                occupation_ratio=BoxSpace(low=occupation_ratio_range[0], high=occupation_ratio_range[1], shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
+                occupation_ratio=BoxSpace(low=self.config.occupation_ratio_low, high=self.config.occupation_ratio_high, shape=(), mutation_mean=0.0, mutation_std=self.config.occupation_ratio_mutation_std, indpb=self.config.occupation_ratio_mutation_indpb, dtype=torch.float32),
             )
 
     def sample(self):
@@ -114,36 +132,85 @@ Update Rule Space:
 
 class CppnPotentialCAUpdateRuleSpace(Space):
 
-    def __init__(self, n_blocks, n_kernels, neat_config, RX_max=5, RY_max=5, RZ_max=5):
+    @staticmethod
+    def default_config():
+        default_config = Dict()
+
+        # T
+        default_config.T_low = 1.0
+        default_config.T_high = 20.0
+        default_config.T_mutation_std = 1.0
+        default_config.T_mutation_indpb = 0.1
+
+        # intra-kernel probabilities
+        default_config.sample_intra_channel = 1.0
+        default_config.mutate_intra_channel = 0.05
+
+        # cross-kernel probabilities
+        default_config.sample_cross_channel = 0.5
+        default_config.mutate_cross_channel = 0.05
+
+        # R
+        default_config.RX_max = 5
+        default_config.RY_max = 5
+        default_config.RZ_max = 5
+        default_config.R_mutation_std = 2
+        default_config.R_mutation_indpb = 0.1
+
+        # m
+        default_config.m_low = 0.1
+        default_config.m_high = 0.6
+        default_config.m_mutation_std = 0.1
+        default_config.m_mutation_indpb = 0.1
+
+        # s
+        default_config.s_low = 0.001
+        default_config.s_high = 0.2
+        default_config.s_mutation_std = 0.05
+        default_config.s_mutation_indpb = 0.1
+
+        # h
+        default_config.h_low = 0.1
+        default_config.h_high = 0.9
+        default_config.h_mutation_std = 0.1
+        default_config.h_mutation_indpb = 0.1
+
+        return default_config
+
+    def __init__(self, n_blocks, n_kernels, neat_config, config={}, **kwargs):
+        self.config = self.__class__.default_config()
+        self.config.update(config)
+        self.config.update(kwargs)
 
         self.n_blocks = n_blocks
         self.n_kernels = n_kernels
         self.neat_config = neat_config
 
-        self.T = BoxSpace(low=1.0, high=20.0, shape=(), mutation_mean=0.0, mutation_std=1.0, indpb=0.1, dtype=torch.float32)
+        self.T = BoxSpace(low=self.config.T_low, high=self.config.T_high, shape=(), mutation_mean=0.0, mutation_std=self.config.T_mutation_std, indpb=self.config.T_mutation_indpb, dtype=torch.float32)
 
-        n_cross_channels = (self.n_blocks - 1) ** 2
+        n_cross_channels = 0
         indpb_sample_cross_channels = []
         indpb_mutate_cross_channels = []
         for c0 in range(1, self.n_blocks):
             for c1 in range(1, self.n_blocks):
                 if c1 == c0: # higher sampling rate and lower mutation rate for channelwise kernels
-                    indpb_sample_cross_channels.append(1.0)
-                    indpb_mutate_cross_channels.append(0.05)
+                    indpb_sample_cross_channels.append(self.config.sample_intra_channel)
+                    indpb_mutate_cross_channels.append(self.config.mutate_intra_channel)
                 else:
-                    indpb_sample_cross_channels.append(0.5)
-                    indpb_mutate_cross_channels.append(0.05)
+                    indpb_sample_cross_channels.append(self.config.sample_cross_channel)
+                    indpb_mutate_cross_channels.append(self.config.mutate_cross_channel)
+                n_cross_channels += 1
 
         self.C = BiasedMultiBinarySpace(n=n_cross_channels, indpb_sample=indpb_sample_cross_channels, indpb=indpb_mutate_cross_channels)
 
         self.K = DictSpace(
-                RX=DiscreteSpace(n=RX_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
-                RY=DiscreteSpace(n=RY_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
-                RZ=DiscreteSpace(n=RZ_max, mutation_mean=0.0, mutation_std=1.0, indpb=0.1),
+                RX=DiscreteSpace(n=self.config.RX_max, mutation_mean=0.0, mutation_std=self.config.R_mutation_std, indpb=self.config.R_mutation_indpb),
+                RY=DiscreteSpace(n=self.config.RY_max, mutation_mean=0.0, mutation_std=self.config.R_mutation_std, indpb=self.config.R_mutation_indpb),
+                RZ=DiscreteSpace(n=self.config.RZ_max, mutation_mean=0.0, mutation_std=self.config.R_mutation_std, indpb=self.config.R_mutation_indpb),
                 cppn_genome=CPPNSpace(neat_config),
-                m=BoxSpace(low=0.1, high=0.6, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
-                s=BoxSpace(low=0.001, high=0.2, shape=(), mutation_mean=0.0, mutation_std=0.05, indpb=0.1, dtype=torch.float32),
-                h=BoxSpace(low=0.1, high=0.9, shape=(), mutation_mean=0.0, mutation_std=0.1, indpb=0.1, dtype=torch.float32),
+                m=BoxSpace(low=self.config.m_low, high=self.config.m_high, shape=(), mutation_mean=0.0, mutation_std=self.config.m_mutation_std, indpb=self.config.m_mutation_indpb, dtype=torch.float32),
+                s=BoxSpace(low=self.config.s_low, high=self.config.s_high, shape=(), mutation_mean=0.0, mutation_std=self.config.s_mutation_std, indpb=self.config.s_mutation_indpb, dtype=torch.float32),
+                h=BoxSpace(low=self.config.h_low, high=self.config.h_high, shape=(), mutation_mean=0.0, mutation_std=self.config.h_mutation_std, indpb=self.config.h_mutation_indpb, dtype=torch.float32),
             )
 
     def sample(self):
@@ -158,6 +225,8 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                 if is_cross_kernel:
                     for k in range(self.n_kernels):
                         x['K'][tuple_to_str_key((c0,c1,k))] = self.K.sample()
+                        # if c0 != c1:
+                        #     x['K'][tuple_to_str_key((c1,c0,k))] = self.K.sample()
                 unrolled_idx += 1
         return x
 
@@ -176,9 +245,13 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                     if was_cross_kernel:
                         for k in range(self.n_kernels):
                             new_x['K'][tuple_to_str_key((c0, c1, k))] = self.K.mutate(x['K'][tuple_to_str_key((c0, c1, k))])
+                            # if c0 != c1:
+                            #     new_x['K'][tuple_to_str_key((c1, c0, k))] = self.K.mutate(x['K'][tuple_to_str_key((c1, c0, k))])
                     else:
                         for k in range(self.n_kernels):
                             new_x['K'][tuple_to_str_key((c0, c1, k))] = self.K.sample()
+                            # if c0 != c1:
+                            #     new_x['K'][tuple_to_str_key((c1, c0, k))] = self.K.sample()
                 unrolled_idx += 1
         return new_x
 
@@ -201,22 +274,36 @@ class CppnPotentialCAUpdateRuleSpace(Space):
                 for k in range(self.n_kernels):
                     if is_child_1_cross_kernel or is_child_2_cross_kernel:
                         if was_x1_cross_kernel:
-                            cur_x1_K = x1['K'][tuple_to_str_key((c0, c1, k))]
+                            cur_x1_K_c0_c1 = x1['K'][tuple_to_str_key((c0, c1, k))]
+                            # if c0 != c1:
+                            #     cur_x1_K_c1_c0 = x1['K'][tuple_to_str_key((c1, c0, k))]
                         else:
-                            cur_x1_K = self.K.sample()
+                            cur_x1_K_c0_c1 = self.K.sample()
+                            # if c0 != c1:
+                            #     cur_x1_K_c1_c0 = self.K.sample()
 
                         if was_x2_cross_kernel:
-                            cur_x2_K = x2['K'][tuple_to_str_key((c0, c1, k))]
+                            cur_x2_K_c0_c1 = x2['K'][tuple_to_str_key((c0, c1, k))]
+                            if c0 != c1:
+                                cur_x2_K_c1_c0 = x2['K'][tuple_to_str_key((c1, c0, k))]
                         else:
-                            cur_x2_K = self.K.sample()
+                            cur_x2_K_c0_c1 = self.K.sample()
+                            # if c0 != c1:
+                            #     cur_x2_K_c1_c0 = self.K.sample()
 
-                        cur_child_1, cur_child_2 = self.K.crossover(cur_x1_K, cur_x2_K)
+                        cur_child_1_c0_c1, cur_child_2_c0_c1 = self.K.crossover(cur_x1_K_c0_c1, cur_x2_K_c0_c1)
+                        # if c0 != c1:
+                        #     cur_child_1_c1_c0, cur_child_2_c1_c0 = self.K.crossover(cur_x1_K_c1_c0, cur_x2_K_c1_c0)
 
                         if is_child_1_cross_kernel:
-                            child_1['K'][tuple_to_str_key((c0, c1, k))] = cur_child_1
+                            child_1['K'][tuple_to_str_key((c0, c1, k))] = cur_child_1_c0_c1
+                            # if c0 != c1:
+                            #     child_1['K'][tuple_to_str_key((c1, c0, k))] = cur_child_1_c1_c0
 
                         if is_child_2_cross_kernel:
-                            child_2['K'][tuple_to_str_key((c0, c1, k))] = cur_child_2
+                            child_2['K'][tuple_to_str_key((c0, c1, k))] = cur_child_2_c0_c1
+                            # if c0 != c1:
+                            #     child_2['K'][tuple_to_str_key((c1, c0, k))] = cur_child_2_c1_c0
 
                 unrolled_idx += 1
 
@@ -280,7 +367,7 @@ class CppnPotentialCAInitialization(torch.nn.Module):
 class CppnPotentialCAStep(torch.nn.Module):
     """ Module pytorch that computes one CppnPotentialCA Step """
 
-    def __init__(self, T, K, cppn_config, cppn_n_passes=3, max_potential=1.0, update_rate=0.5, update_clip="hard", device='cpu'):
+    def __init__(self, T, K, cppn_config, cppn_n_passes=3, max_potential=1.0, update_rate=1.0, update_clip="hard", device='cpu'):
         torch.nn.Module.__init__(self)
 
         self.cppn_config = cppn_config
@@ -318,7 +405,7 @@ class CppnPotentialCAStep(torch.nn.Module):
             kernel_SY = 2 * K.RY + 1
             kernel_SX = 2 * K.RX + 1
             cppn_input = pytorchneat.utils.create_image_cppn_input((kernel_SZ, kernel_SY, kernel_SX), is_distance_to_center=True, is_bias=True)
-            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, self.cppn_n_passes).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0)
+            cppn_output_kernel = (1.0 - K.cppn_net.activate(cppn_input, self.cppn_n_passes).abs()).squeeze(-1).unsqueeze(0).unsqueeze(0).detach()
             kernel_sum = torch.sum(cppn_output_kernel)
             if kernel_sum > 0:
                 self.kernels[str_key] = cppn_output_kernel / kernel_sum
@@ -502,17 +589,17 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.train()
         train_losses = []
 
-        # param_list = []
-        # for str_key, K in self.ca_step.K.named_children():
-        #     param_list.append({'params': K.m, 'lr': 0.01})
-        #     param_list.append({'params': K.s, 'lr': 0.01})
-        #     param_list.append({'params': K.h, 'lr': 0.01})
-        #self.optimizer = torch.optim.Adam(param_list)
+        param_list = []
+        for str_key, K in self.ca_step.K.named_children():
+            param_list.append({'params': K.m, 'lr': 0.01})
+            param_list.append({'params': K.s, 'lr': 0.01})
+            param_list.append({'params': K.h, 'lr': 0.01})
+        self.optimizer = torch.optim.SGD(param_list)
 
-        self.optimizer = torch.optim.Adam([{'params': self.ca_init.I.parameters(), 'lr': 0.1},
-                          {'params': self.ca_step.K.parameters(), 'lr': 0.1},
-                          {'params': self.ca_step.T, 'lr': 0.1}
-                          ])
+        # self.optimizer = torch.optim.SGD([{'params': self.ca_init.I.parameters(), 'lr': 0.1},
+        #                   {'params': self.ca_step.K.parameters(), 'lr': 0.1},
+        #                   {'params': self.ca_step.T, 'lr': 0.1}
+        #                   ])
 
         for optim_step_idx in range(optim_steps):
 
@@ -527,7 +614,7 @@ class CppnPotentialCA(System, torch.nn.Module):
             loss.backward()
             self.optimizer.step()
 
-            if optim_step_idx > 3 and abs(old_loss - loss.item()) < 1e-4:
+            if optim_step_idx > 3 and abs(old_loss - loss.item()) < 1e-2 and not self.is_dead:
                 break
 
             train_losses.append(loss.item())
@@ -536,14 +623,12 @@ class CppnPotentialCA(System, torch.nn.Module):
                 best_loss = loss.item()
 
             if loss.item() < best_loss:
-                print('best loss')
                 # update policy parameters as lead to the better results
                 self.update_initialization_parameters()
                 self.update_update_rule_parameters()
                 best_loss = loss.item()
 
             if self.is_dead:
-                print('is dead')
                 # restart optimisation from slightly mutated params
                 policy_parameters = Dict()
                 policy_parameters['initialization'] = self.initialization_parameters
@@ -556,17 +641,6 @@ class CppnPotentialCA(System, torch.nn.Module):
         return train_losses
 
     def step(self, intervention_parameters=None):
-        # clamp params if was changed outside of allowed bounds with gradient Descent
-        with torch.no_grad():
-            if not self.update_rule_space.T.contains(self.ca_step.T.data):
-                self.ca_step.T.data = self.update_rule_space.T.clamp(self.ca_step.T.data)
-            for str_key, module in self.ca_step.K.named_children():
-                if not self.update_rule_space.K['m'].contains(module.m.data):
-                    module.m.data = self.update_rule_space.K['m'].clamp(module.m.data)
-                if not self.update_rule_space.K['s'].contains(module.s.data):
-                    module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
-                if not self.update_rule_space.K['h'].contains(module.h.data):
-                    module.h.data = self.update_rule_space.K['h'].clamp(module.h.data)
 
         self.potential = self.ca_step(self.potential) #diff continuous
 
@@ -596,6 +670,18 @@ class CppnPotentialCA(System, torch.nn.Module):
 
 
     def run(self, render=False, render_mode="human"):
+        # clamp params if was changed outside of allowed bounds with gradient Descent
+        with torch.no_grad():
+            if not self.update_rule_space.T.contains(self.ca_step.T.data):
+                self.ca_step.T.data = self.update_rule_space.T.clamp(self.ca_step.T.data)
+            for str_key, module in self.ca_step.K.named_children():
+                if not self.update_rule_space.K['m'].contains(module.m.data):
+                    module.m.data = self.update_rule_space.K['m'].clamp(module.m.data)
+                if not self.update_rule_space.K['s'].contains(module.s.data):
+                    module.s.data = self.update_rule_space.K['s'].clamp(module.s.data)
+                if not self.update_rule_space.K['h'].contains(module.h.data):
+                    module.h.data = self.update_rule_space.K['h'].clamp(module.h.data)
+
         self.generate_update_rule_kernels()
         self.generate_init_potential()
         observations = Dict()
@@ -620,7 +706,7 @@ class CppnPotentialCA(System, torch.nn.Module):
         observations.rgb_states = torch.stack(observations.rgb_states)
         return observations
 
-
+    """
     def render(self, mode="human"):
         visible = False
         if mode == "human":
@@ -696,10 +782,11 @@ class CppnPotentialCA(System, torch.nn.Module):
         imageio.mimwrite(gif_filepath, gif_images, format="GIF-PIL", fps=4)
         pygifsicle.optimize(gif_filepath)
         return
+    """
 
     def render_rollout(self, observations, filepath):
+        """
         t, n_channels, SZ, SY, SX = observations.potentials.shape
-        """"""
         vis = o3d.visualization.Visualizer()
         vis.create_window('Discovery Gif', 800, 800, visible=False)
         p_cam = o3d.camera.PinholeCameraParameters()
@@ -719,6 +806,7 @@ class CppnPotentialCA(System, torch.nn.Module):
                                             [R[1, 0], R[1, 1], R[1, 2], t[1]],
                                             [R[2, 0], R[2, 1], R[2, 2], t[2]],
                                             [0., 0., 0., 1.]])
+        """
         gif_images = []
         #for potential in observations.potentials:
         for im in observations.rgb_states:
@@ -750,13 +838,16 @@ class CppnPotentialCA(System, torch.nn.Module):
             vis.clear_geometries()
             """
             gif_images.append(out_image)
-        vis.close()
+        #vis.close()
         # Save observation gif if specified in config
         n_bits = 2 ** ceil(log(len(self.blocks_colorlist),2))
-        imageio.imwrite(filepath + "_start.png", gif_images[0], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
-        imageio.imwrite(filepath + "_end.png", gif_images[-1], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
-        imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=4, palettesize=n_bits)
-        pygifsicle.optimize(filepath + ".gif")
+        if len(gif_images) > 1:
+            imageio.imwrite(filepath + "_start.png", gif_images[0], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
+            imageio.imwrite(filepath + "_end.png", gif_images[-1], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
+            imageio.mimwrite(filepath + ".gif", gif_images, format="GIF-PIL", fps=4, palettesize=n_bits)
+            pygifsicle.optimize(filepath + ".gif")
+        else:
+            imageio.imwrite(filepath + ".png", gif_images[0], format="PNG-PIL", quantize=n_bits, prefer_uint8=True)
         return
 
 
