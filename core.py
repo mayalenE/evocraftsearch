@@ -1,5 +1,4 @@
 import warnings
-
 import torch
 from addict import Dict
 from evocraftsearch import ExplorationDB
@@ -155,11 +154,6 @@ class OutputRepresentation:
         """
         raise NotImplementedError
 
-    def calc_distance(self, embedding_a, embedding_b, **kwargs):
-        """ Compute the distance between 2 embedding
-        """
-        raise NotImplementedError
-
 
 class OutputFitness:
     """ Base class to map the observations of a system to a behavioral descriptor
@@ -213,7 +207,7 @@ class Explorer:
         """
         # do not pickle the data as already saved in extra files
         tmp_data = self.db
-        self.db.reset_empty_db()
+        self.db = None
 
         # pickle exploration object
         torch.save(self, filepath)

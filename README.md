@@ -205,6 +205,7 @@ the goal.
 
 * **config**
     * **num_of_random_initialization** - number of random initializations before starting the goal-directed exploration
+    * **frequency_of_random_initialization**
     * **source_policy_selection** - config used to sample policy parameters given a target goal
     * **reach_goal_optimizer** - config used to optimize policy parameters toward a target goal
 * **policy_library** - episodic memory of policy parameters

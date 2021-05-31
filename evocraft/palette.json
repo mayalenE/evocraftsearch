@@ -676,7 +676,7 @@
   },
   {
     "namespace": "minecraft",
-    "material": "white_wool",
+    "material": "wool",
     "mode": "block",
     "top_color": [223, 223, 223, 255],
     "darken": true,

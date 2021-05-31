@@ -3,7 +3,7 @@ import re
 import warnings
 from collections import OrderedDict
 from glob import glob
-
+from copy import deepcopy
 import torch
 from addict import Dict
 from tqdm import tqdm
@@ -19,7 +19,6 @@ class ExplorationDB:
         default_config = Dict()
         default_config.db_directory = "database"
         default_config.save_observations = True
-        default_config.keep_saved_runs_in_memory = True
         default_config.memory_size_run_data = 'infinity'  # number of runs that are kept in memory: 'infinity' - no imposed limit, int - number of runs saved in memory
         default_config.load_observations = True  # if set to false observations are not loaded in the load() function
 
@@ -42,7 +41,7 @@ class ExplorationDB:
         self.run_ids = set()  # list with run_ids that exist in the db
         self.run_data_ids_in_memory = []  # list of run_ids that are hold in memory
 
-    def get_run_data(self, run_id):
+    def get_run_data(self, run_id, map_location=None):
 
         try:
             return self.runs[run_id]
@@ -57,7 +56,7 @@ class ExplorationDB:
                 filepath = os.path.join(self.config.db_directory, filename)
 
                 if os.path.exists(filepath):
-                    run_data_kwargs = torch.load(filepath)
+                    run_data_kwargs = torch.load(filepath, map_location=map_location)
                 else:
                     run_data_kwargs = {'id': None, 'policy_parameters': None}
 
@@ -67,7 +66,7 @@ class ExplorationDB:
 
                     # load observations
                     if os.path.exists(filepath_obs):
-                        observations = torch.load(filepath_obs)
+                        observations = torch.load(filepath_obs, map_location=map_location)
                     else:
                         observations = None
                 else:
@@ -99,8 +98,7 @@ class ExplorationDB:
             self.run_data_ids_in_memory.insert(0, id)
 
         # remove last item from memory when not enough size
-        if self.config.memory_size_run_data != 'infinity' and len(
-                self.run_data_ids_in_memory) > self.config.memory_size_run_data:
+        if self.config.memory_size_run_data != 'infinity' and len(self.run_data_ids_in_memory) > self.config.memory_size_run_data:
             del (self.runs[self.run_data_ids_in_memory[-1]])
             del (self.run_data_ids_in_memory[-1])
 
@@ -114,11 +112,6 @@ class ExplorationDB:
             self.save_run_data_to_db(run_id)
             if self.config.save_observations:
                 self.save_observations_to_db(run_id)
-
-        if not self.config.keep_saved_runs_in_memory:
-            for run_id in run_ids:
-                del self.runs[run_id]
-            self.run_data_ids_in_memory = []
 
 
     def save_run_data_to_db(self, run_id):
@@ -168,9 +161,13 @@ class ExplorationDB:
 
             if self.config.memory_size_run_data != 'infinity' and len(run_ids) > self.config.memory_size_run_data:
                 # only load the maximum number of run_data into the memory
-                run_ids = list(run_ids)[-self.config.memory_size_run_data:]
+                run_ids_to_load_from_db = list(deepcopy(run_ids))[-self.config.memory_size_run_data:]
 
-            self.load_run_data_from_db(run_ids, map_location=map_location)
+            else:
+                run_ids_to_load_from_db = deepcopy(run_ids)
+
+            self.load_run_data_from_db(run_ids_to_load_from_db, map_location=map_location)
+
 
     def load_run_ids_from_db(self):
         run_ids = set()
@@ -192,6 +189,7 @@ class ExplorationDB:
 
         print('Loading Data: ')
         for run_id in tqdm(run_ids):
+
             # load general data (run parameters and others)
             filename = 'run_{:07d}_data.pickle'.format(run_id)
             filepath = os.path.join(self.config.db_directory, filename)
@@ -217,8 +215,3 @@ class ExplorationDB:
             run_data = Dict(observations=observations, **run_data_kwargs)
             self.add_run_data_to_memory(run_id, run_data)
 
-            if not self.config.keep_saved_runs_in_memory:
-                del self.runs[run_id]
-                del self.run_data_ids_in_memory[0]
-
-        return
