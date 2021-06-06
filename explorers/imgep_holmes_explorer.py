@@ -86,6 +86,8 @@ class HolmesGoalSpace(DictSpace):
             data = observations.onehot_states[-1].unsqueeze(0)
         elif dataset_type == "rgb":
             data = observations.rgb_states[-1].unsqueeze(0)
+        else:
+            raise ValueError
 
         squeeze_dims = torch.where(torch.tensor(data.shape[2:]) == 1)[0]
         for dim in squeeze_dims:
