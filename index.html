@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+
+
+<meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js"></script>
+
+    <!-- Begin Jekyll SEO tag v2.7.1 -->
+<title>Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?</title>
+<meta name="generator" content="Jekyll v3.8.4" />
+<meta property="og:title" content="Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?" />
+<meta property="og:locale" content="en_US" />
+<link rel="canonical" href="http://localhost:4000/" />
+<meta property="og:url" content="http://localhost:4000/" />
+<meta property="og:site_name" content="Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?" />
+<script type="application/ld+json">
+{"@type":"WebSite","url":"http://localhost:4000/","name":"Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?","headline":"Meta-Diversity Search in Complex Systems, A Recipe for Artificial Open-Endedness ?","@context":"https://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+
+    <link rel="stylesheet" href="assets/css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.min.js"></script>
+
+    <link href="//maxcdn.bootstrapcdn.com/font-awesome/latest/css/font-awesome.min.css" rel="stylesheet">
+
+
+    
+    <script type="text/x-mathjax-config">
+        MathJax.Hub.Config({
+          tex2jax: {
+            inlineMath: [['$','$'], ['\\(','\\)']],
+            processEscapes: true
+          }
+        });
+        </script>
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-MML-AM_CHTML"></script>
+    
+
+
+
+    <!-- Flexsider: https://woocommerce.com/flexslider/ -->
+    <link rel="stylesheet" href="assets/css/flexslider.css" type="text/css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js"></script>
+    <script src="/%0A%20%20%20%20/assets/css/js/jquery.flexslider.js"></script>
+    <script type="text/javascript" charset="utf-8">
+    $(document).ready(function() {
+    $('.flexslider').flexslider();
+    });
+    </script>
+
+
+    <!-- Experiment database script -->
+    <script src="assets/js/experiments_database.js"></script>
+
+
+</head>
+
+
+  <body>
+    <div class="wrapper">
+	<hr class="mainhr">
+	<h1><i style="color: #444; opacity: 0.7;">Meta-</i>Diversity Search in Complex Systems,  <br>  A Recipe for Artificial Open-Endedness ?</h1>
+
+      <section>
+
+      <hr class="mainhr" />
+
+<p><br /></p>
+
+<p>The idea of the <a href="https://evocraft.life/">Minecraft Open-Endedness Challenge</a> is to try and think how would we artificially approach <em>“open-endedness”</em> in the Minecraft environment, 
+put in another words it asks the question: <em>Can build an artificial system that would be able to generate endless surprises if runned “forever” in Minecraft?</em><br />
+While there is not a single path toward solving that <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">grand challenge you’ve never heard of</a>, 
+this article explains our views on the subject and what we believe to be some working ingredients for the endless generation of novel increasingly complex artifacts in Minecraft.</p>
+
+<h2 id="problem-formulation">Problem Formulation</h2>
+<hr />
+
+<p>Minecraft game environnement $E$ is made of $1m^3$ building blocks that players can use to construct any structure they desire (also called <em>artifacts</em>) with almost endless possibilities to express their creativity.
+The blocks exist in a spatio-temporal world which is 3-dimensional in space and where time advances with each gametick.
+There is a finite number of possible blocks (M=255) which are described by their <em>type</em> $m$ (eg: water, wood, air, etc.) and optionally by a <em>state</em> $s$ which further describes the block appearance 
+(eg: texture, orientation) or behavior (eg: age, on/off state, counters).</p>
+
+<p>Let’s define the <em>spaces</em> of our problem:</p>
+<ul>
+  <li><strong>State space $\Sigma$</strong>: each “cell” of the world (x,y,z) can take a certain state $s^t$. The <em>visible</em> state in the Evocraft API world is limited to the block type $j \in \{1..M\}$. 
+However nothing prevents us to consider state spaces with higher representational capacity, for instance by attaching an <em>hidden</em> feature vector $h \in \mathbb{R^d}$ to each “cell” of the world. 
+The state could describe concrete physical attributes of the cell at this point in space in time (eg: mass or electric currant) as well as more abstract quantities used for computation by the rules of our generator (eg: memory units).</li>
+  <li><strong>Artifact space $A$</strong>: an <em>artifact</em> $a$ in Minecraft (also called <em>phenotype</em>) is described as a set $\{(m, x, y, z, t, s)\}$ of elemental blocks where $m$ is the block type; 
+$(x,y,z)$ is the spatial position; $t$ is the timestep; and $s$ is the block state.
+In the rest, an artifact is represented by its discrete time serie $a = \{a^0, \dots, a^t, \dots\}$ (with $a^t=a^0$ for static artifacts).</li>
+  <li><strong>Search space $\Theta$</strong>: each artifact is the result of some sort of <em>design</em> or <em>generative</em> process where
+a <em>genome</em> $\theta$ determines the artifact initial state $a^0$ as well as the artifact development over time $(a^0, \dots, a^t) \rightarrow a^{t+1}$.
+The choice of the genome $\theta$ and of the generative process $G: \Theta \rightarrow A$ (also called <em>genotype-to-phenotype</em> mapping) will define the search space $\Theta$ and the 
+reachable artifact space $A$ of our system.</li>
+  <li><strong>Solution space $W$</strong>: the solution space is set of all possible <em>artifacts</em> $\{a \in E\}$ which can be generated by $G$.</li>
+</ul>
+
+<p>Following that formalism, our open-ended framework is composed of two main components:</p>
+<ul>
+  <li>an <strong>artifact-generator $G: \Theta \rightarrow A$</strong> which should allow for artifacts with unbounded phenotypic complexity.</li>
+  <li>an <strong>artifact-discovery $D$</strong> algorithm that evolves a set of genomes and their corresponding artifacts $\{(\theta_1, a_1=G(\theta_1)), \dots, (\theta_N, a_N=G(\theta_N))\} \in W$<br />
+($N \to \infty$ in the open-ended setting) and that should ceasessly evolve novel and increasingly complex artifacts.</li>
+</ul>
+
+<p>How to artificially construct the genome $\theta$, the genotype-to-phenotype mapping $G$ and to how to evolve sets of artifacts $\{(\theta,a)\} \in W$ complying with open-ended problems remains an open question to date.
+However, interdisciplinary research at the crossroad of complex system science, machine learning and biology seem to suggest a list of necessary “ingredients” that such a system 
+should comply with to have the hope of exhibiting a high level of open-ended dynamics [<a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">Stanley et al., 2020</a>].
+In the next section, we present what we believe to be <em>desirata</em> properties to include in our open-ended framework; and in the following section we propose a <em>possible</em> implementations of those ideas in the Minecraft environment.</p>
+
+<h2 id="desirata-properties-of-our-open-ended-framework">Desirata Properties of our Open-Ended Framework</h2>
+<hr />
+
+<h3 id="g-self-organized-system-for-the-endless-generation-of-complex-artifacts">$G$: self-organized system for the endless generation of complex artifacts</h3>
+<hr style="border-top: 1px solid #828282; max-width: 840px; margin-top: -25px; margin-left:0;" />
+
+<p><strong>Complex systems</strong> are good candidates of processes that can produce unbounded growth in complexity, where the complexity is generated from the cooperation of
+many entities that interact with each other and with the environment in a recursive nonlinear way.</p>
+
+<p><img src="assets/media/artifact-generator/generator.png" style="zoom: 0.7; margin-left: 200px;" /></p>
+
+<p>We formulate our <em>artifact-generator</em> $G$ as an artificial complex system which should comply with the following general properties:</p>
+<ul>
+  <li><strong>Dynamical system —</strong> $G$ recursively applies an update rule $f$ that changes the state of the system over time.</li>
+  <li><strong>Growth —</strong> the inititial state $a^0$ is limited in space and complexity and the phenotype grows and complexifies over time.</li>
+  <li><strong>Local interactions —</strong> the update rule $f$ is defined on a local neighborhood ball and <em>shared</em> at the different locations.</li>
+  <li><strong>Non-linearity —</strong> $G$ has non-linear dynamics $f$.</li>
+  <li>(may be) <strong>Open —</strong> exchanging flows of matter/energy with their environment allows system to exhibit high levels of diversity, heterogeneity and complexity.</li>
+  <li>(may have a) <strong>Memory —</strong> the state of the system might depend on its history.</li>
+</ul>
+
+<h3 id="d-meta-diversity-search-for-the-endless-discovery-of-novel-artifacts">$D$: meta-diversity search for the endless discovery of novel artifacts</h3>
+<hr style="border-top: 1px solid #828282; max-width: 780px; margin-top: -25px; margin-left:0;" />
+
+<p>Implementing computational systems with the above properties and artificial worlds that exhibit life-like behaviors similar to those of natural complex system, is not new 
+(goes back to von Neumann’s seminal work on cellular automata in the 40’s) nor that far from reach (it is one of the core thematics of the <em>Artificial Life</em> research discipline). 
+As an example, John Conway’s <a href="">Game of Life</a> is a well-known artificial complex system from the 70’s that is very easy to implement and yet that can generate a very wide range of life-like structures and dynamics.
+However, a more challenging question is <em>how to automate the long-term discovery of increasingly complex and divergent structures in such systems</em>.
+As an illustration of those challenges, more than 50 years after the creation of Conway’s game of life, people are still discovering novel highly-complex patterns which remained unknown to date.</p>
+
+<p>In the same way that Conway’s Game of Life together with the community of people searching might form an example of open-ended system,
+our framework needs to couple the artifact-generator $G$ with a discovery algorithm $D$ able to continuously search for novel possible artifacts.</p>
+
+<p>The exploration of artificial like the Game of Life have mainly been done “by hand”, relying on the human eye to determine what an interesting pattern is.
+Methods that propose to <em>automatically</em> explore the input space $\Theta$ of complex systems can be divided in 3 main families:
+<em>“naive”</em> strategies (independant of the outcomes of the system), <em>optimization-driven</em> strategies and <em>diversity-driven</em> strategies.
+We briefly review why these approaches (in their standard definition) are limited to comply with open-ended problems and rather tend to converge toward a sub-region of the possible solution space $W$.
+Our <em>artifact-discovery</em> algorithm $D$ search objective is formulated as the <em>meta-diversity</em> objective, an extension of the standard <em>diversity</em> objective that we proposed recently
+in the context of (open-ended) automated discovery in complex systems [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
+
+<h4 id="naive-search-strategy">Naive search strategy</h4>
+<p><img src="assets/media/artifact-discovery/naive.png" style="zoom: 0.5; float: left; margin-right: 40px;" />
+An “naive” strategy consists of covering at best the known search space $\Theta$, 
+for instance with <em>grid-search</em> or <em>uniform</em> sampling strategy $D: \theta \sim U(\Theta)$.
+While easy to implement, this is often very inefficient in covering the space of possible phenotypes, especially for complex genotype-to-phenotype developmental mappings
+where big regions of the input space $\Theta$ are mapped to small regions in the outcome space $A$ (we talk of “attractor” states).</p>
+
+<h4 id="optimization-search-strategy">Optimization search strategy</h4>
+<p><img src="assets/media/artifact-discovery/optim.png" style="zoom: 0.5; float: left; margin-right: 10px;" />
+Pure objective-driven search is another widely-used discovery strategy $D$, where each discovery $a$ gets scored with a fitness function $F$ and where $D$ aims to find individuals 
+$\{(\theta_i, a_i)\}$ with the highest fitness scores $F(a_i)$.
+Different objective-driven techniques have been implemented as discovery tool in complex systems such as evolutionary population-based search strategies [<a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Nichele 2016</a>], 
+gradient-based search strategies (if the generator $G$ and the fitness $F$ are differentiable) [<a href="https://distill.pub/2020/selforg/">Mordvintsev et al. 2020</a>], 
+and reinforcement learning strategies (if the system’s dynamics $f$ integrates a differentiable policy which actions influence the system next state) [<a href="https://pathak22.github.io/modular-assemblies/">Pathak et al. 2019</a>]. 
+While these techniques can be very powerful optimizers toward desired artifacts [<a href="https://arxiv.org/pdf/2103.08737.pdf">Sudhakaran et al. 2021</a>], they tend to converge toward “peaks” regions on the artifact fitness landscape and stop here once reached,
+making them poor-fit for open-ended problems. Moreover, they generally suffer from deceptive rewards and are hardly generalizable to complex artifact spaces with limited predictability.</p>
+
+<h4 id="diversity-search-strategy">Diversity search strategy</h4>
+<p><img src="assets/media/artifact-discovery/diversity.png" style="zoom: 0.5; float: left; margin-right: 40px;" />
+Another family of approaches proposes to maximize the <em>novelty</em> of the discovered phenotypes instead of the <em>fitness</em>, and leverage population-based
+evolutionary and developmental curiosity-driven exploration methods like <a href="">Novelty Search</a>, <a href="">Quality-Diversity</a> or <a href="">Intrinsically Motivated Goal Exploration Processes</a>.
+Getting rid of the efficiency objective has shown to be effective at creating behavioral <em>diversity</em> in complex systems and a promising discovery tool [<a href="https://arxiv.org/abs/1908.06663">Reinke et al. 2020</a>]. 
+Moreover, diversity-search can be coupled with optimization-based strategies to generate a set of diverse high-performing phenotype solutions to a problem [cite]. 
+Yet standard approaches assume that the intuitive notion of diversity can be captured within a single representation space, 
+which is generally called $BC$ for behavioral characterization. This limits the scope of the final discoveries: in the same way that the fitness function $f$ is constraining the reached 
+area in the observation space $A$, being diverse in a specific $BC$ does not mean being diverse in $A$. 
+Actually, there is not such thing as a unique ground truth “interesting” diversity in complex phenotypic spaces,
+and operating in a monolithic BC space might lead to discoveries that are highly-diverse in that space but poorly-diverse
+according to other potentially-interesting behavioral criteria [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
+
+<h4 id="meta-diversity-search-strategy">Meta-Diversity search strategy</h4>
+<p><img src="assets/media/artifact-discovery/meta-diversity.png" style="zoom: 0.5; float: left; margin-right: 40px;" />
+To address these limits, we recently formulated the problem of meta-diversity search where an artificial “discovery assistant” incrementally 
+(i) learns a diverse set of representations to characterize behaviors in an <strong>outer loop</strong>
+and (ii) searches to discover diverse patterns within each of them in an <strong>inner loop</strong>.
+The objective of this process is to enable continuous seeking of novel niches of diversities (growing encoding capacity to characterize newly-discovered niches into <strong>divergent feature spaces</strong>)
+while being able to quickly adapt the search toward a new unknown type of diversity (<strong>knowledge accumulator</strong> that leverages the diverse BCs).
+Similarly, <em>quality-guidance</em> can be integrated in the framework: with minimal external feedback, a successful discovery assistant should be able to efficiently specialize 
+the exploration strategy toward a particular type of “interesting” diversity,  corresponding to the initially unknown preferences of an end-user and
+expressed through simple sparse feedback.</p>
+
+<p><br /></p>
+<h2 id="proposed-implementation">Proposed Implementation</h2>
+<hr />
+
+<p>We simulate an artificial “chemistry” system based on Lenia continuous cellular automaton [<a href="https://arxiv.org/abs/1812.05433">Chan 2019</a>, <a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Chan 2020</a>]
+and an artificial “discovery assistant” (HOLMES) which integrates a goal-based intrinsically-motivated exploration
+(<em>inner loop</em>’s diversity search) with the incremental learning of a growing hierarchy of behavioral characterization spaces (<em>outer loop</em>’s divergent knowledge accumulator)
+[<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
+
+<p>While abstracting away from natural chemistry, we follow this metaphore to illustrate our open-ended system and implementation choices for the challenge.</p>
+
+<p><br />
+<img src="assets/media/LeniaChem/petri_dish.svg" style="width: 45px; float: left; margin-right: 10px; " /></p>
+<h3 id="leniachem-an-artificial-chemistry-system">LeniaChem: an “artificial chemistry” system</h3>
+<hr style="border-top: 1px solid #828282; margin-top: -25px; max-width: 600px; margin-left:0;" />
+
+<p>CAs have been extensively studied for understanding how simple local rules can give rise to complex patterns and dynamics of the collectives.</p>
+
+<p><img src="assets/media/LeniaChem/leniaChem.png" style="float: left; margin-right: 40px;" />
+We use a continuous CA as our toy artificial chemistry system, where the CA’s 3D grid $a^t$ represents the “petri-dish” where evolved patterns will develop in time.<br />
+The state space $\Sigma$ is represented with a multi-channel continuous array $A$ where each channel $A_j$ represent the “chemical potential” of the associated specy $j \in \{1..M\}$.<br />
+The hyper-parameters constraining the range of possible patterns are the grid-size $(S_X, S_Y, S_Z)$ (dimensions of the “petri-dish”) and 
+the number of channels $M$ (number of “chemical species” represented with blocks in Minecraft). The grid here is a torus, meaning that voxels on the top borders are neighbors to bottom voxels and same for left and right borders.</p>
+
+<div style="display: flex;">
+    <div style="flex: 1;">
+    <b> Parameters $\psi$ that determine $A^{t=0}$: </b>
+    <ul>
+    <li> a binary vector $I$ of shape $M$ which determines which channel get initialized (i.e. non-empty mass at t=0)  </li>
+    <li> Each initially-present channel $j$ ($I_j=1$) is described with:
+        <ul>
+        <li> its <em>occupation ratio</em>: portion of the grid where it is present at t=0 </li>
+        <li> its <em>cppn genome</em> which is used to generate the initial pattern $A_j^{t=0}$ </li>
+        </ul> 
+    </li>
+    </ul>    
+    </div>
+    <div style="flex: 1.5;">
+    <b> Parameters $\phi$ of the CA's update rule $f$: </b>
+    <ul>
+    <li> a binary vector $C$ of shape $M^2$ which determines which species are interacting together </li>
+    <li> Each interacting channel pair $(c_i,c_j)$ ($C_{i \rightarrow j}=1$) is described with:
+        <ul>
+        <li> fraction $h$ of the update applied per time step (intra-specy rate of growth) </li>
+        <li> the kernel $K$ with:
+            <ul>
+            <li> the kernel size $R_x, R_y, R_z$ (<em>neighborhood</em> size) </li>
+            <li> the <em>cppn genome</em> which generates the kernel matrix $K$ </li> </ul> 
+        </li>
+        <li> the <em>growth function</em> mean $\mu$ and variance $\sigma$ </li>
+        </ul> 
+    </li>
+    <li> fraction $dt$ of the growth update applied per time step (global rate of growth) </li>
+    </ul> 
+    </div>
+</div>
+
+<p><img src="assets/media/LeniaChem/cronin_dropfactory.gif" style="zoom: 0.4; float: right; margin-left: 30px;" />
+Following the “artificial chemistry” metaphore, we can imagine the parameters $\theta = (\psi, \phi)$ as representing the quantity and disposition of each starting material 
+as well as the operating conditions (temperature, pressure, pH, etc.) influencing the development of the final product.
+As an example, <a href="https://advances.sciencemag.org/content/6/5/eaay4237">Grizou et al. 2020</a> recently propose to explore the dynamics of an oil-droplet system with a “curious robot” which could manipulate the initial mixture composition of chemicals.<br />
+The resulting “artifact” here would be the yield of each compound in the final product, the rest being considered as empty “air” invisible blocks in Minecraft.</p>
+
+<p>The <strong>“physics” formulas $f$</strong> of our petri-dish follow Lenia rules [<a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Chan 2020</a>] 
+and apply the following updates to the state at each time step:</p>
+<ol>
+  <li>Loop on all kernel $K_{i \rightarrow j}$ and:
+    <ol>
+      <li>calculate the weighted sums $K_{i \rightarrow j} * A_i$ with its source channel $A_i$</li>
+      <li>Apply growth mapping to the weighted sums: $G_{i \rightarrow j} =\sum 2 \times e^{-\frac{\left((K_{i \rightarrow j} * A_i) - \mu\right)^2}{2 \sigma^2}} - 1$</li>
+      <li>Add a small relative portion $dt * h_{i \rightarrow j}$ of the resulting growth to the destination channel: <script type="math/tex">A_j \mathrel{+}= dt * h_{i \rightarrow j} * G_{i \rightarrow j}</script></li>
+    </ol>
+  </li>
+  <li>The potentials of each channels $A_j$ are clipped between 0 and 1</li>
+  <li>To prevent participation of empty “air” cells in the update process we apply an alive-masking step [<a href="https://distill.pub/2020/selforg/">Mordvintsev et al. 2020</a>] as follows: we fix the air potential (channel 0) to a fixed value 0.1 and we consider
+empty every location which maximum potential is lower than 0.1, by setting every channels (except air’s one) to 0.</li>
+  <li>Finally chemical “matter” is created in zones of higher chemical potential with $a^t = \underset{j \in M}{argmax} A^t$</li>
+</ol>
+
+<div style="display: flex; justify-content: space-between;">
+<iframe src="https://www.youtube.com/embed/ud0qGJLp6Bs?start=51&amp;end=120&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;loop=1&amp;playlist=ud0qGJLp6Bs?start=51&amp;end=120" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/70tZnYveUqs?start=8&amp;end=30&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;loop=1&amp;playlist=70tZnYveUqs?start=8&amp;end=30" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/hlGO-1B93SM?start=7&amp;end=35&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=hlGO-1B93SM?start=71&amp;end=35" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/FYLY8ee87B0?start=14&amp;end=100&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=FYLY8ee87B0?start=14&amp;end=100&amp;" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/bGug-NXRskY?start=1&amp;end=144&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=bGug-NXRskY?start=1&amp;end=144" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+</div>
+<p><em>Example of chemical reactions from the <a href="https://www.youtube.com/c/chemicalbouillon">chemical bouillon</a> youtube channel.</em></p>
+<div style="display: flex; justify-content: space-between;">
+<img src="assets/media/LeniaChem/run_913_rollout.gif" style="width: 240px; height: auto;" />
+<img src="assets/media/LeniaChem/run_2236_rollout.gif" style="width: 240px; height: auto;" />
+<img src="assets/media/LeniaChem/run_653_rollout.gif" style="width: 240px; height: auto;" />
+<img src="assets/media/LeniaChem/run_2670_rollout.gif" style="width: 240px; height: auto;" />
+<img src="assets/media/LeniaChem/run_884_rollout.gif" style="width: 240px; height: auto;" />
+</div>
+<p><em>Example of artifact-growth in the LeniaChem system.</em></p>
+
+<p><br />
+<img src="assets/media/Holmes/holmes.png" style="width: 55px; float: left; margin-right: 10px; " /></p>
+<h3 id="holmes--an-artificial-discovery-assitant-exploring-the-system">Holmes:  an artificial “discovery assitant” exploring the system</h3>
+<hr style="border-top: 1px solid #828282; margin-top: -25px; max-width: 800px; margin-left:0;" />
+
+<div style="background-color: #eee; padding-left: 20px; margin: 0px; text-align: center">
+<p style="text-align: justify;">
+<u>Paper</u>: <b>Hierarchically Organized Latent Modules for Exploratory Search in Morphogenetic Systems</b>. <br />
+Mayalen Etcheverry, Clément Moulin-Frier and Pierre-Yves Oudeyer. <br />
+In <i> Neural Information Processing Systems</i>, 2020.
+</p>
+</div>
+
+<h2 id="resulting-discoveries">Resulting Discoveries</h2>
+<hr />
+
+<!--from here-->
+
+<div>
+    <form id="load_images">
+        Choose experiment 
+        <select id="experiment">
+        </select>
+        Repetition 
+        <select id="repetition">
+            <option value="0">0</option>
+        </select>
+        <button type="submit">Load Experiment</button>
+    </form>
+    <br />
+    Filter
+    <select id="classes">
+        <option value="All">All</option>
+    </select>
+
+</div>
+<div id="show_result">
+            
+</div>
+<div>
+    0
+    <input style="width: 90%;" type="range" id="window_slider" value="5000" step="48" max="5040" min="0" />
+    <span id="length_data">5000</span>
+</div>
+
+<!--to here-->
+
+<h2 id="discussion">Discussion</h2>
+<hr />
+
+<p><br />
+<br /></p>
+
+<hr />
+
+<h4 id="references">References</h4>
+
+<ul>
+  <li>K. Stanley, J. Lehman, L. Soros - <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">Open-endedness: The last grand challenge you’ve never heard of</a> - 2017</li>
+  <li>J. Bongrad, M. Levin - <a href="https://www.frontiersin.org/articles/10.3389/fevo.2021.650726/full">Living Things Are Not (20th Century) Machines: Updating Mechanism Metaphors in Light of the Modern Science of Machine Behavior</a> - 2020</li>
+  <li>S. Nichele, A. Giskeødegård, G. Tufte - <a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Evolutionary Growth of Genome Representations on Artificial Cellular Organisms with Indirect Encodings</a> - 2016</li>
+  <li>B. W-C. Chan - <a href="https://arxiv.org/abs/1812.05433">Lenia - Biology of Artificial Life</a> - 2019</li>
+  <li>B. W-C. Chan - <a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Lenia and expanded universe</a> - 2020</li>
+  <li>P. Dittrich , J. Ziegler , W. Banzhaf - <a href="https://www.cs.mun.ca/~banzhaf/papers/alchemistry_review_MIT.pdf">Artificial Chemistries - A Review</a> - 2001</li>
+  <li>M. Etcheverry, C. Moulin-Frier, P-Y. Oudeyer - <a href="https://arxiv.org/pdf/2007.01195.pdf">Hierarchically Organized Latent Modules for Exploratory Search in Morphogenetic Systems</a> - 2020</li>
+  <li>A. Mordvintsev, E. Randazzo, E. Niklasson, M. Levin - <a href="https://distill.pub/2020/selforg/">Differentiable Self-organizing Systems</a> - 2020</li>
+  <li>D. Pathak, C. Lu, T. Darrell, P. Isola and A. A. Efros - <a href="https://pathak22.github.io/modular-assemblies/">Learning to Control Self-Assembling Morphologies: A Study of Generalization via Modularity</a> - 2019</li>
+  <li>S. Sudhakaran, D. Grbic, S. Li, A. Katona, E. Najarro, C. Glanois, S. Risi - <a href="https://arxiv.org/pdf/2103.08737.pdf">Growing 3D Artefacts and Functional Machines with Neural Cellular Automata</a> - 2021</li>
+</ul>
+
+
+      </section>
+
+    </div>
+  </body>
+</html>
