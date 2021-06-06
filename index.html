@@ -147,9 +147,9 @@ This wouldn&#39;t have been possible without <a href="https://twitter.com/ArminB
 
 <p>The idea of implementing computational systems with the above <em>desirata</em> properties, whose complexity could grow automatically akin to real complex systems is not new.
 The simulation of artificial worlds that exhibit life-like behaviors goes back to von Neumann’s seminal work on <a href="https://en.wikipedia.org/wiki/Von_Neumann_universal_constructor">self-reproducing cellular automata</a> in the 40’s. 
-and has been one of the core thematics of the <a href="https://en.wikipedia.org/wiki/Artificial_life">Artificial Life</a> research discipline since then.<br />
+and has been one of the core thematic of the <a href="https://en.wikipedia.org/wiki/Artificial_life">Artificial Life</a> research discipline since then.<br />
 Interestingly, von Neumann’s “proof of principle” showed that very simple machines could constitute universal constructors with very large expressive power.
-30 years laters, John Conway implemented a very simple version of von Neumann’s automata, the well known <a href="https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life">Game of Life</a> that, despite its apparent simplicity, 
+30 years later, John Conway implemented a very simple version of von Neumann’s automata, the well known <a href="https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life">Game of Life</a> that, despite its apparent simplicity, 
 can generate a very wide range of life-like structures and dynamics.<br />
 Yet, even for very simple systems like Conway’s Game of Life where one fully knows the simple basic rules at the local level,
 we are still far from fully grasping what structures can self-organize, how to represent and classify them, and how to predict their evolution.
@@ -164,7 +164,7 @@ Therefore, a more challenging question is:</p>
 our open-ended framework couples the artifact-generator $G$ with an artifact-discovery algorithm $D$ able to continuously search for novel and divergent artifacts in $W$.</p>
 
 <p>In the next section, we briefly present the 3 main families of methods that propose to <em>automatically</em> explore the input space $\Theta$ of complex systems, namely
-<em>“naive”</em> strategies (independant of the outcomes of the system), <em>optimization-driven</em> strategies and <em>diversity-driven</em> strategies.<br />
+<em>“naive”</em> strategies (independent of the outcomes of the system), <em>optimization-driven</em> strategies and <em>diversity-driven</em> strategies.<br />
 We review why these approaches (in their standard definition) are limited to comply with open-ended problems and rather tend to converge toward a sub-region of the possible solution space $W$.
 Our <em>artifact-discovery</em> algorithm $D$ search objective is formulated as the <em>meta-diversity</em> objective, an extension of the standard <em>diversity</em> objective that we proposed recently
 in the context of (open-ended) automated discovery in complex systems [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
@@ -233,7 +233,7 @@ and an artificial “discovery assistant” (HOLMES) which integrates a goal-bas
 <p><br />
 <img src="assets/media/LeniaChem/leniaChem.png" style="float: right; margin-left: 40px;" />
 We use a continuous CA as our toy artificial chemistry system, where the CA’s 3D grid $a^t$ represents the “petri-dish” where evolved patterns will develop in time.<br />
-The state space $\Sigma$ is represented with a multi-channel continuous array $A$ where each channel $A_j$ represent the “chemical potential” of the associated specy $j \in \{1..M\}$.<br />
+The state space $\Sigma$ is represented with a multi-channel continuous array $A$ where each channel $A_j$ represent the “chemical potential” of the associated specie $j \in \{1..M\}$.<br />
 The hyper-parameters constraining the range of possible patterns are the grid-size $(S_X, S_Y, S_Z)$ (dimensions of the “petri-dish”) and 
 the number of channels $M$ (number of “chemical species” represented with blocks in Minecraft). The grid here is a torus, meaning that voxels on the top borders are neighbors to bottom voxels and same for left and right borders.</p>
 
@@ -341,7 +341,7 @@ will impact how patterns are separated and distributed into different niches, wh
 <p>A goal-based intrinsically-motivated exploration process (IMGEP) is used for the parameter sampling strategy. 
 The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES embedding hierarchy ${\mathcal{R}_i}$.</p>
 
-<p><img src="assets/media/Holmes/IMGEP-HOLMES.png" style="zoom: 0.7; margin-left: 200px;" /></p>
+<p><img src="assets/media/Holmes/IMGEP-HOLMES.png" style="zoom: 0.7; margin-left: auto" /></p>
 
 <p>The exploration process iterates through steps 1-to-4 as illustrated in the above figure: <br />
 (i) sample a target BC space and a target goal in it (the sampling strategy here is equivalent to <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Novelty Search</a>) <br />
@@ -354,7 +354,7 @@ The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES
 
 <!--from here-->
 
-<div>
+<div style="text-align: center;">
     <form id="load_images">
         Choose experiment 
         <select id="experiment">
@@ -362,24 +362,58 @@ The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES
         Repetition 
         <select id="repetition">
             <option value="0">0</option>
+            <option value="1">1</option>
         </select>
         <button type="submit">Load Experiment</button>
     </form>
-    <br />
-    Filter
-    <select id="classes">
+    <select id="classes" hidden="">
         <option value="All">All</option>
     </select>
+    <div>
+        <i>Click on the images to see the evolution in time!</i>
+    </div>
 
 </div>
 <div id="show_result">
             
 </div>
-<div>
-    0
-    <input style="width: 90%;" type="range" id="window_slider" value="5000" step="48" max="5040" min="0" />
-    <span id="length_data">5000</span>
+<div style="text-align: center;">
+    <div>
+        <a class="button" id="step_back"><i style="margin-left: 10px;" class="fa fa-step-backward fa-lg"></i>  </a>
+        <span style="margin-left: 30px;">Experiment runs:</span> <span id="current_exp" style="margin-right: 30px;font-weight: bold;">36-45</span>
+        <a class="button" id="step_forward"><i class="fa fa-step-forward fa-lg"> </i> </a>
+    </div>
+    <span>0 </span> <input style="width: 70%;" type="range" id="window_slider" value="1" step="48" max="5040" min="0" /> <span id="length_data"> 0 </span>
 </div>
+
+<style>
+    .evocraft_img img {
+        image-rendering: optimizeSpeed;             /* STOP SMOOTHING, GIVE ME SPEED  */
+        image-rendering: -moz-crisp-edges;          /* Firefox                        */
+        image-rendering: -o-crisp-edges;            /* Opera                          */
+        image-rendering: -webkit-optimize-contrast; /* Chrome (and eventually Safari) */
+        image-rendering: pixelated;                 /* Chrome */
+        image-rendering: optimize-contrast;         /* CSS3 Proposed                  */
+        -ms-interpolation-mode: nearest-neighbor;   /* IE8+                           */
+    }
+    .evocraft_img:hover{
+        background-color: #1abc9c;
+    }
+    .evocraft_img i{
+        display: none;
+        color: #1abc9c;
+    }
+    .evocraft_img b{
+        color: #1abc9c;
+        display: none;  
+    }
+    .evocraft_img:hover i{
+        display: block;
+    }
+    .evocraft_img:hover span{
+        color: white;
+    }
+</style>
 
 <!--to here-->
 
