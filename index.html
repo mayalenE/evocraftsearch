@@ -71,12 +71,30 @@
 
       <hr class="mainhr" />
 
+<p style="font-size: 1.3em; text-align: center;"><a href="https://mayalenE.github.io/">Mayalen Etcheverry</a>, <a href="https://chakazul.github.io/">Bert Chan</a>, <a href="http://clement-moulin-frier.github.io/">Clément Moulin-Frier</a>, <a href="http://www.pyoudeyer.com/">Pierre-Yves Oudeyer</a></p>
 <p><br /></p>
 
 <p>The idea of the <a href="https://evocraft.life/">Minecraft Open-Endedness Challenge</a> is to try and think how would we artificially approach <em>“open-endedness”</em> in the Minecraft environment, 
 put in another words it asks the question: <em>Can we build an artificial system that would be able to generate endless surprises if runned “forever” in Minecraft?</em><br />
 While there is not a single path toward solving that <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">grand challenge you’ve never heard of</a>, 
 this article presents what we believe to be some working ingredients for the endless generation of novel increasingly complex artifacts in Minecraft.</p>
+
+<h2 id="overview">Overview</h2>
+<hr />
+
+<p>Our framework for an open-ended system includes two components: a <strong>complex system</strong> used to recursively grow and complexify artifacts over time, and a discovery algorithm that leverages the concept of <strong>meta-diversity</strong> search.</p>
+
+<p>Complex systems are good candidates of generative processes to allow the construction of all sort of  possible artifacts in Minecraft with unbounded growth in complexity. 
+However, a major challenge is to automate the long-term discovery of novel and increasingly complex artifacts in those systems.
+To address these challenges, we formulate the problem of meta-diversity search where an artificial “discovery assistant” incrementally learns a diverse set of representations to characterize behaviors and searches to discover diverse patterns within each of them. A successful discovery assistant should continuously seek for novel sources of diversities while being able to quickly specialize the search toward a new unknown type of diversity [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
+
+<p>To implement those ideas in the Minecraft environment, we simulate an artificial “chemistry” system based on <a href="https://chakazul.github.io/lenia.html">Lenia</a> continuous cellular automaton for generating artifacts,
+as well as an artificial “discovery assistant” (called Holmes) for the artifact-discovery process.
+Holmes incrementally learns a hierarchy of modular representations to characterize divergent sources of diversity and uses a goal-based intrinsically-motivated exploration as the diversity search strategy.</p>
+
+<p>In this blogpost, we start with the <a href="#problem-formulation">problem formulation</a> for building an open-ended algorithm capable of endlessly generating Minecraft creations. 
+Then, we present what we decided to include as <a href="#desirata-properties-of-our-open-ended-framework">desirata properties</a> in our open-ended framework and then proposes a <a href="proposed-implementation">possible implementation</a> of those ideas in the Minecraft environment.
+Finally, we provide the database of discoveries made by our algorithm and discuss our approach.</p>
 
 <h2 id="problem-formulation">Problem Formulation</h2>
 <hr />
@@ -91,9 +109,8 @@ There is a finite number of possible blocks (M=255) which are described by their
   <li><strong>State space $\Sigma$</strong>: each “cell” of the world (x,y,z) can take a certain state $s^t$. The <em>visible</em> state in the Evocraft API world is limited to the block type $j \in \{1..M\}$. 
 The <em>hidden</em> state is free of choice, for instance a feature vector $h \in \mathbb{R^d}$ can be attached to each “cell” of the world and can describe concrete physical attributes of the cell at this point in space in time (eg: mass or electric currant) 
 as well as more abstract computational quantities.</li>
-  <li><strong>Artifact space $A$</strong>: an <em>artifact</em> $a$ in Minecraft (also called <em>phenotype</em>) is described as a set $\{(m, x, y, z, t, s)\}$ of elemental blocks where $m$ is the block type; 
-$(x,y,z)$ is the spatial position; $t$ is the timestep; and $s$ is the block state.
-In the rest, an artifact is represented by its discrete time serie $a = \{a^0, \dots, a^t, \dots\}$ (with $a^t=a^0$ for static artifacts).</li>
+  <li><strong>Artifact space $A$</strong>: an <em>artifact</em> $a$ in Minecraft (also called <em>phenotype</em>) is represented by its discrete time serie $a = \{a^0, \dots, a^t, \dots\}$ ($a^t=a^0$ for static artifacts) and $a^t$ is a set $\{(m, x, y, z, s)\}$ of elemental blocks where $m$ is the block type; 
+$(x,y,z)$ is the spatial position; and $s$ is the block state.</li>
   <li><strong>Search space $\Theta$</strong>: each artifact is the result of some sort of <em>design</em> or <em>generative</em> process where
 a <em>genome</em> $\theta$ determines the artifact initial state $a^0$ as well as the artifact development over time $(a^0, \dots, a^t) \rightarrow a^{t+1}$.
 The choice of the genome $\theta$ and of the generative process $G: \Theta \rightarrow A$ (also called <em>genotype-to-phenotype</em> mapping) will define the search space $\Theta$ and the 
@@ -111,7 +128,7 @@ reachable artifact space $A$ of our system.</li>
 <p>How to artificially construct the genome $\theta$, the genotype-to-phenotype mapping $G$ and to how to evolve sets of artifacts $\{(\theta,a)\} \in W$ complying with open-ended problems remains an open question to date.
 However, interdisciplinary research at the crossroad of complex system science, machine learning and biology seem to suggest a list of necessary “ingredients” that such a system 
 should comply with to have the hope of exhibiting a high level of open-ended dynamics [<a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">Stanley et al., 2020</a>].
-In the next section, we present what we decided to include as <em>desirata</em> properties in our open-ended framework; and in the following section we propose a <em>possible</em> implementation of those ideas in the Minecraft environment.</p>
+The next section details what we include as <em>desirata</em> properties in our open-ended framework.</p>
 
 <h2 id="desirata-properties-of-our-open-ended-framework">Desirata Properties of our Open-Ended Framework</h2>
 <hr />
@@ -119,10 +136,7 @@ In the next section, we present what we decided to include as <em>desirata</em> 
 <h3 id="g-self-organized-system-for-the-endless-generation-of-complex-artifacts">$G$: self-organized system for the endless generation of complex artifacts</h3>
 <hr style="border-top: 1px solid #828282; max-width: 840px; margin-top: -25px; margin-left:0;" />
 
-<p><strong>Complex systems</strong> are good candidates of generative processes that can produce unbounded growth in complexity, where the complexity emerges from the cooperation of
-many entities that interact with each other and with the environment in a recursive nonlinear way.</p>
-
-<p><img src="assets/media/artifact-generator/generator.png" style="zoom: 0.7; margin-left: 200px;" /></p>
+<p><img style="zoom: 0.7; margin-left:250px; " src="assets/media/overview/generator.png" /></p>
 
 <p>We formulate our <em>artifact-generator</em> $G$ as an artificial complex system which should comply with the following general properties:</p>
 <ul>
@@ -151,7 +165,7 @@ and has been one of the core thematic of the <a href="https://en.wikipedia.org/w
 Interestingly, von Neumann’s “proof of principle” showed that very simple machines could constitute universal constructors with very large expressive power.
 30 years later, John Conway implemented a very simple version of von Neumann’s automata, the well known <a href="https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life">Game of Life</a> that, despite its apparent simplicity, 
 can generate a very wide range of life-like structures and dynamics.<br />
-Yet, even for very simple systems like Conway’s Game of Life where one fully knows the simple basic rules at the local level,
+Yet, even for very simple systems like Conway’s Game of Life where one fully knows the basic rules at the local level,
 we are still far from fully grasping what structures can self-organize, how to represent and classify them, and how to predict their evolution.
 As an illustration of those challenges, more than 50 years after the creation of Conway’s game of like and thanks to today supercomputer’s power, 
 the community is still discovering novel patterns with impressive complexity and whose existence remained unknown to date.<br />
@@ -194,7 +208,7 @@ making them poor-fit for open-ended problems. Moreover, they generally suffer fr
 Another family of approaches proposes to maximize the <em>novelty</em> of the discovered phenotypes instead of the <em>fitness</em>, and leverage population-based
 evolutionary and developmental curiosity-driven exploration methods like <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Novelty Search</a>, 
 <a href="https://arxiv.org/abs/1708.09251">Quality-Diversity</a> or <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Intrinsically Motivated Goal Exploration Processes</a>.
-Getting rid of the efficiency objective has shown to be effective at creating behavioral <em>diversity</em> in robotic systems [<a href="">cite</a>] and a promising discovery tool in complex systems [<a href="https://arxiv.org/abs/1908.06663">Reinke et al. 2020</a>]. 
+Getting rid of the efficiency objective has shown to be effective at creating behavioral <em>diversity</em> in robotic systems [<a href="https://arxiv.org/abs/1708.02190">Forestier et al., 2017</a>] and a promising discovery tool in complex systems [<a href="https://arxiv.org/abs/1908.06663">Reinke et al. 2020</a>]. 
 Moreover, diversity-search can be coupled with optimization-based strategies to generate a set of diverse high-performing phenotype solutions to a problem [cite]. 
 Yet standard approaches assume that the intuitive notion of diversity can be captured within a single representation space, 
 which is generally called $BC$ for behavioral characterization. This limits the scope of the final discoveries: in the same way that the fitness function $f$ is constraining the reached 
@@ -206,10 +220,8 @@ according to other potentially-interesting behavioral criteria [<a href="https:/
 <h4 id="meta-diversity-search-strategy">Meta-Diversity search strategy</h4>
 <p><img src="assets/media/artifact-discovery/meta-diversity.png" style="zoom: 0.5; float: left; margin-right: 40px;" />
 To address these limits, we recently formulated the problem of meta-diversity search where an artificial “discovery assistant” incrementally 
-(i) learns a diverse set of representations to characterize behaviors in an <strong>outer loop</strong>
-and (ii) searches to discover diverse patterns within each of them in an <strong>inner loop</strong>.
-The objective of this process is to enable continuous seeking of novel niches of diversities (growing encoding capacity to characterize newly-discovered niches into <strong>divergent feature spaces</strong>)
-while being able to quickly adapt the search toward a new unknown type of diversity (<strong>knowledge accumulator</strong> that leverages the diverse BCs).
+learns divergent feature spaces to characterize the different niches of diversities (outer loop) and searches to discover diverse patterns within each of them (inner loop).
+The objective of this process is to enable continuous seeking of novel source of diversities while being able to quickly adapt the search toward a new unknown type of diversity.
 Similarly, <em>quality-guidance</em> can be integrated in the framework: with minimal external feedback, a successful discovery assistant should be able to efficiently specialize 
 the exploration strategy toward a particular type of “interesting” diversity,  corresponding to the initially unknown preferences of an end-user and
 expressed through simple sparse feedback.</p>
@@ -418,27 +430,27 @@ The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES
 
 <!--to here-->
 
-<h2 id="discussion">Discussion</h2>
-<hr />
-
 <p><br />
 <br /></p>
-
 <hr />
 
 <h4 id="references">References</h4>
 
 <ul>
   <li>K. Stanley, J. Lehman, L. Soros - <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">Open-endedness: The last grand challenge you’ve never heard of</a> - 2017</li>
-  <li>J. Bongrad, M. Levin - <a href="https://www.frontiersin.org/articles/10.3389/fevo.2021.650726/full">Living Things Are Not (20th Century) Machines: Updating Mechanism Metaphors in Light of the Modern Science of Machine Behavior</a> - 2020</li>
-  <li>S. Nichele, A. Giskeødegård, G. Tufte - <a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Evolutionary Growth of Genome Representations on Artificial Cellular Organisms with Indirect Encodings</a> - 2016</li>
   <li>B. W-C. Chan - <a href="https://arxiv.org/abs/1812.05433">Lenia - Biology of Artificial Life</a> - 2019</li>
   <li>B. W-C. Chan - <a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Lenia and expanded universe</a> - 2020</li>
-  <li>P. Dittrich , J. Ziegler , W. Banzhaf - <a href="https://www.cs.mun.ca/~banzhaf/papers/alchemistry_review_MIT.pdf">Artificial Chemistries - A Review</a> - 2001</li>
   <li>M. Etcheverry, C. Moulin-Frier, P-Y. Oudeyer - <a href="https://arxiv.org/pdf/2007.01195.pdf">Hierarchically Organized Latent Modules for Exploratory Search in Morphogenetic Systems</a> - 2020</li>
+  <li>S. Nichele, A. Giskeødegård, G. Tufte - <a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Evolutionary Growth of Genome Representations on Artificial Cellular Organisms with Indirect Encodings</a> - 2016</li>
   <li>A. Mordvintsev, E. Randazzo, E. Niklasson, M. Levin - <a href="https://distill.pub/2020/selforg/">Differentiable Self-organizing Systems</a> - 2020</li>
   <li>D. Pathak, C. Lu, T. Darrell, P. Isola and A. A. Efros - <a href="https://pathak22.github.io/modular-assemblies/">Learning to Control Self-Assembling Morphologies: A Study of Generalization via Modularity</a> - 2019</li>
   <li>S. Sudhakaran, D. Grbic, S. Li, A. Katona, E. Najarro, C. Glanois, S. Risi - <a href="https://arxiv.org/pdf/2103.08737.pdf">Growing 3D Artefacts and Functional Machines with Neural Cellular Automata</a> - 2021</li>
+  <li>J. Lehman, Kenneth. Stanley- <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Abandoning Objectives: Evolution through the Search for Novelty Alone</a> - 2011</li>
+  <li>A. Cully, Y. Demiris <a href="https://arxiv.org/abs/1708.09251">Quality and Diversity Optimization: A Unifying Modular Framework</a> - 2017</li>
+  <li>A. Baranses, P.Y. Oudeyer - <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Active learning of inverse models with intrinsically motivated goal exploration in robots</a> - 2013</li>
+  <li>C. Reinke, M. Etcheverry, P.Y. Oudeyer - <a href="https://arxiv.org/abs/1908.06663">Intrinsically Motivated Discovery of Diverse Patterns in Self-Organizing Systems</a> - 2020</li>
+  <li>S. Forestier, R. Portelas, Y. Mollard, P.Y. Oudeyer - <a href="https://arxiv.org/abs/1708.02190">Intrinsically motivated goal exploration processes with automatic curriculum learning</a> - 2017</li>
+  <li>J. Grizou, L.J. Points, A. Sharma, L. Cronin - <a href="https://arxiv.org/abs/1708.02190">A curious formulation robot enables the discovery of a novel protocell behavior</a> - 2020</li>
 </ul>
 
 
