@@ -75,7 +75,7 @@
 <p><br /></p>
 
 <p>The idea of the <a href="https://evocraft.life/">Minecraft Open-Endedness Challenge</a> is to try and think how would we artificially approach <em>“open-endedness”</em> in the Minecraft environment, 
-put in another words it asks the question: <em>Can we build an artificial system that would be able to generate endless surprises if runned “forever” in Minecraft?</em><br />
+put in another words it asks the question: <em>Can we build an artificial system that would be able to generate endless surprises if ran “forever” in Minecraft?</em><br />
 While there is not a single path toward solving that <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">grand challenge you’ve never heard of</a>, 
 this article presents what we believe to be some working ingredients for the endless generation of novel increasingly complex artifacts in Minecraft.</p>
 
@@ -95,7 +95,7 @@ Holmes incrementally learns a hierarchy of modular representations to characteri
 
 <p>In this blogpost, we start with the <a href="#problem-formulation">problem formulation</a> for building an open-ended algorithm capable of endlessly generating Minecraft creations. 
 Then, we present what we decided to include as <a href="#desirata-properties-of-our-open-ended-framework">desirata properties</a> in our open-ended framework and then proposes a <a href="proposed-implementation">possible implementation</a> of those ideas in the Minecraft environment.
-Finally, we provide the database of discoveries made by our algorithm and discuss our approach.</p>
+Finally, we provide the <a href="#resulting-discoveries">database of discoveries</a> made by our algorithm.</p>
 
 <h2 id="problem-formulation">Problem Formulation</h2>
 <hr />
@@ -142,7 +142,7 @@ The next section details what we include as <em>desirata</em> properties in our 
 <p>We formulate our <em>artifact-generator</em> $G$ as an artificial complex system which should comply with the following general properties:</p>
 <ul>
   <li><strong>Dynamical system —</strong> $G$ recursively applies an update rule $f$ that changes the state of the system over time.</li>
-  <li><strong>Growth —</strong> the inititial state $a^0$ is limited in space and complexity and the phenotype grows and complexifies over time.</li>
+  <li><strong>Growth —</strong> the initial state $a^0$ is limited in space and complexity and the phenotype grows and complexifies over time.</li>
   <li><strong>Local interactions —</strong> the update rule $f$ is defined on a local neighborhood ball and shared at the different locations.</li>
   <li><strong>Non-linearity —</strong> $G$ has non-linear dynamics $f$.</li>
   <li>(may be) <strong>Open —</strong> G might exchange flows of matter/energy with the environment to allow high levels of diversity, heterogeneity and complexity.</li>
@@ -181,8 +181,7 @@ our open-ended framework couples the artifact-generator $G$ with an artifact-dis
 <p>In the next section, we briefly present the 3 main families of methods that propose to <em>automatically</em> explore the input space $\Theta$ of complex systems, namely
 <em>“naive”</em> strategies (independent of the outcomes of the system), <em>optimization-driven</em> strategies and <em>diversity-driven</em> strategies.<br />
 We review why these approaches (in their standard definition) are limited to comply with open-ended problems and rather tend to converge toward a sub-region of the possible solution space $W$.
-Our <em>artifact-discovery</em> algorithm $D$ search objective is formulated as the <em>meta-diversity</em> objective, an extension of the standard <em>diversity</em> objective that we proposed recently
-in the context of (open-ended) automated discovery in complex systems [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
+Our <em>artifact-discovery</em> algorithm $D$ search objective is formulated as the <em>meta-diversity</em> objective, an extension of the standard <em>diversity</em> objective that we proposed recently in the context of automated discovery in complex systems [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
 
 <h3 id="d-meta-diversity-search-for-the-endless-discovery-of-novel-artifacts">$D$: meta-diversity search for the endless discovery of novel artifacts</h3>
 <hr style="border-top: 1px solid #828282; max-width: 780px; margin-top: -25px; margin-left:0;" />
@@ -206,11 +205,10 @@ making them poor-fit for open-ended problems. Moreover, they generally suffer fr
 
 <h4 id="diversity-search-strategy">Diversity search strategy</h4>
 <p><img src="assets/media/artifact-discovery/diversity.png" style="zoom: 0.5; float: left; margin-right: 40px;" />
-Another family of approaches proposes to maximize the <em>novelty</em> of the discovered phenotypes instead of the <em>fitness</em>, and leverage population-based
-evolutionary and developmental curiosity-driven exploration methods like <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Novelty Search</a>, 
-<a href="https://arxiv.org/abs/1708.09251">Quality-Diversity</a> or <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Intrinsically Motivated Goal Exploration Processes</a>.
+Another family of approaches proposes to maximize the <em>novelty</em> of the discovered phenotypes instead of the <em>fitness</em>, and leverages population-based
+evolutionary and developmental curiosity-driven exploration methods like <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Novelty Search</a> or <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Intrinsically Motivated Goal Exploration Processes</a>.
 Getting rid of the efficiency objective has shown to be effective at creating behavioral <em>diversity</em> in robotic systems [<a href="https://arxiv.org/abs/1708.02190">Forestier et al., 2017</a>] and a promising discovery tool in complex systems [<a href="https://arxiv.org/abs/1908.06663">Reinke et al. 2020</a>]. 
-Moreover, diversity-search can be coupled with optimization-based strategies to generate a set of diverse high-performing phenotype solutions to a problem [cite]. 
+Moreover, diversity-search can be coupled with optimization-based strategies to generate a set of diverse high-performing phenotype solutions to a problem, forming what we call <a href="https://arxiv.org/abs/1708.09251">Quality-Diversity</a> methods. 
 Yet standard approaches assume that the intuitive notion of diversity can be captured within a single representation space, 
 which is generally called $BC$ for behavioral characterization. This limits the scope of the final discoveries: in the same way that the fitness function $f$ is constraining the reached 
 area in the observation space $A$, being diverse in a specific $BC$ does not mean being diverse in $A$. 
@@ -236,16 +234,19 @@ and an artificial “discovery assistant” (HOLMES) which integrates a goal-bas
 (<em>inner loop</em>’s diversity search) with the incremental learning of a growing hierarchy of behavioral characterization spaces (<em>outer loop</em>’s divergent knowledge accumulator)
 [<a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>].</p>
 
-<p>While abstracting away from natural chemistry, we follow this metaphore to illustrate our open-ended system and implementation choices for the challenge.</p>
+<p>While abstracting away from natural chemistry, we follow this metaphor to illustrate our open-ended system and implementation choices for the challenge.</p>
 
 <p><br />
 <img src="assets/media/LeniaChem/petri_dish.svg" style="width: 45px; float: left; margin-right: 10px; " /></p>
 <h3 id="leniachem-an-artificial-chemistry-system">LeniaChem: an “artificial chemistry” system</h3>
 <hr style="border-top: 1px solid #828282; margin-top: -25px; max-width: 600px; margin-left:0;" />
 
-<p><br />
-<img src="assets/media/LeniaChem/leniaChem.png" style="float: right; margin-left: 40px;" />
-We use a continuous CA as our toy artificial chemistry system, where the CA’s 3D grid $a^t$ represents the “petri-dish” where evolved patterns will develop in time.<br />
+<p>Cellular automata are good models to study how significantly different dynamics can arise from uniform simple laws at a smaller scale.<br />
+Lenia is a recently proposed cellular automaton that extends traditional CA with continuous state spaces and rules generalized to higher dimensions, multiple kernels and multiple channels.
+Our variant of Lenia (LeniaChem) used for the Minecraft environment is implemented in 3D and combines continuous channels (one channel per “block” in minecraft) and discrete visible states. Any number kernels can be sampled and the kernel matrices are generated with CPPN networks [<a href="http://eplex.cs.ucf.edu/papers/stanley_gpem07.pdf">Stanley, 2007</a>], such that the CA update rule is not limited in its expressive power.</p>
+
+<p><img src="assets/media/LeniaChem/leniaChem.png" style="float: left; margin-top: 10px; margin-right: 40px;" />
+The CA’s 3D grid $a^t$ represents the “petri-dish” where evolved patterns will develop in time.<br />
 The state space $\Sigma$ is represented with a multi-channel continuous array $A$ where each channel $A_j$ represent the “chemical potential” of the associated specie $j \in \{1..M\}$.<br />
 The hyper-parameters constraining the range of possible patterns are the grid-size $(S_X, S_Y, S_Z)$ (dimensions of the “petri-dish”) and 
 the number of channels $M$ (number of “chemical species” represented with blocks in Minecraft). The grid here is a torus, meaning that voxels on the top borders are neighbors to bottom voxels and same for left and right borders.</p>
@@ -285,7 +286,7 @@ the number of channels $M$ (number of “chemical species” represented with bl
 
 <p><img src="assets/media/LeniaChem/cronin_dropfactory.gif" style="height: 160px; float: left; margin-right: 20px;" />
 <img src="assets/media/LeniaChem/droplets.gif" style="height: 160px; float: right; margin-left: 20px;" />
-Following the “artificial chemistry” metaphore, we can imagine the parameters $\theta = (\psi, \phi)$ as representing the quantity and disposition of each starting material 
+Following the “artificial chemistry” metaphor, we can imagine the parameters $\theta = (\psi, \phi)$ as representing the quantity and disposition of each starting material 
 as well as the operating conditions (temperature, pressure, pH, etc.) influencing the development of the final product.
 As an example, <a href="https://advances.sciencemag.org/content/6/5/eaay4237">Grizou et al. 2020</a> recently propose to explore the dynamics of an oil-droplet system with a “curious robot” which could manipulate the initial mixture composition of chemicals.<br />
 The resulting “artifact” here would be the yield of each compound in the final product, the rest being considered as empty “air” invisible blocks in Minecraft.</p>
@@ -323,9 +324,12 @@ empty every location which maximum potential is lower than 0.1, by setting every
 </div>
 <p><em>Example of artifact-growth in the LeniaChem system.</em></p>
 
+<p>Back to the <em>desirata</em> properties of our artifact-generator, LeniaChem is a <em>dynamical</em> system that shows <em>growth</em>, <em>local interactions</em> and <em>non-linearity</em>.
+LeniaChem is not <em>open</em> in a strictly-speaking sense but we do not impose any sort of mass-conservation law. Similarly, we do not explicitly implement <em>memory</em> in the CA but any value can be stored in the continuous channel.</p>
+
 <p><br />
 <img src="assets/media/Holmes/holmes.png" style="width: 55px; float: left; margin-right: 10px; " /></p>
-<h3 id="holmes--an-artificial-discovery-assitant-exploring-the-system">Holmes:  an artificial “discovery assitant” exploring the system</h3>
+<h3 id="holmes--an-artificial-discovery-assistant-exploring-the-system">Holmes:  an artificial “discovery assistant” exploring the system</h3>
 <hr style="border-top: 1px solid #828282; margin-top: -25px; max-width: 800px; margin-left:0;" />
 
 <p>To solve the previously-introduced meta-diversity objective, several key challenges need to be addressed. 
@@ -358,7 +362,7 @@ The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES
 
 <p>The exploration process iterates through steps 1-to-4 as illustrated in the above figure: <br />
 (i) sample a target BC space and a target goal in it (the sampling strategy here is equivalent to <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Novelty Search</a>) <br />
-(ii) sample a set of parameters for the next rollout to achieve that goal  (here nearest neighbour + mutation)<br />
+(ii) sample a set of parameters for the next rollout to achieve that goal  (here nearest neighbor + mutation)<br />
 (iii) let the system rollout and observe the outcome artifact<br />
 (iv) store the resulting (parameter, observation, encoding<em>s</em>) triplets in an explicit memory (growing archive of all discoveries).</p>
 
@@ -439,19 +443,20 @@ The IMGEP operates in the hierarchy of goal spaces ${BC_i}$ as defined by HOLMES
 
 <ul>
   <li>K. Stanley, J. Lehman, L. Soros - <a href="https://www.oreilly.com/radar/open-endedness-the-last-grand-challenge-youve-never-heard-of/">Open-endedness: The last grand challenge you’ve never heard of</a> - 2017</li>
-  <li>B. W-C. Chan - <a href="https://arxiv.org/abs/1812.05433">Lenia - Biology of Artificial Life</a> - 2019</li>
-  <li>B. W-C. Chan - <a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Lenia and expanded universe</a> - 2020</li>
-  <li>M. Etcheverry, C. Moulin-Frier, P-Y. Oudeyer - <a href="https://arxiv.org/pdf/2007.01195.pdf">Hierarchically Organized Latent Modules for Exploratory Search in Morphogenetic Systems</a> - 2020</li>
-  <li>S. Nichele, A. Giskeødegård, G. Tufte - <a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Evolutionary Growth of Genome Representations on Artificial Cellular Organisms with Indirect Encodings</a> - 2016</li>
-  <li>A. Mordvintsev, E. Randazzo, E. Niklasson, M. Levin - <a href="https://distill.pub/2020/selforg/">Differentiable Self-organizing Systems</a> - 2020</li>
-  <li>D. Pathak, C. Lu, T. Darrell, P. Isola and A. A. Efros - <a href="https://pathak22.github.io/modular-assemblies/">Learning to Control Self-Assembling Morphologies: A Study of Generalization via Modularity</a> - 2019</li>
+  <li>B. W-C. Chan - <a href="https://arxiv.org/abs/1812.05433">Lenia - Biology of Artificial Life</a> - Complex Systems 2019</li>
+  <li>B. W-C. Chan - <a href="https://direct.mit.edu/isal/proceedings/isal2020/32/221/98400">Lenia and expanded universe</a> - ALife 2020</li>
+  <li>M. Etcheverry, C. Moulin-Frier, P-Y. Oudeyer - <a href="https://arxiv.org/pdf/2007.01195.pdf">Hierarchically Organized Latent Modules for Exploratory Search in Morphogenetic Systems</a> - NeurIPS 2020</li>
+  <li>S. Nichele, A. Giskeødegård, G. Tufte - <a href="https://direct.mit.edu/artl/article/22/1/76/2838/Evolutionary-Growth-of-Genome-Representations-on">Evolutionary Growth of Genome Representations on Artificial Cellular Organisms with Indirect Encodings</a> - ALife 2016</li>
+  <li>A. Mordvintsev, E. Randazzo, E. Niklasson, M. Levin - <a href="https://distill.pub/2020/selforg/">Differentiable Self-organizing Systems</a> - Distill 2020</li>
+  <li>D. Pathak, C. Lu, T. Darrell, P. Isola, A. Efros - <a href="https://pathak22.github.io/modular-assemblies/">Learning to Control Self-Assembling Morphologies: A Study of Generalization via Modularity</a> - NeurIPS 2019</li>
   <li>S. Sudhakaran, D. Grbic, S. Li, A. Katona, E. Najarro, C. Glanois, S. Risi - <a href="https://arxiv.org/pdf/2103.08737.pdf">Growing 3D Artefacts and Functional Machines with Neural Cellular Automata</a> - 2021</li>
-  <li>J. Lehman, Kenneth. Stanley- <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Abandoning Objectives: Evolution through the Search for Novelty Alone</a> - 2011</li>
-  <li>A. Cully, Y. Demiris <a href="https://arxiv.org/abs/1708.09251">Quality and Diversity Optimization: A Unifying Modular Framework</a> - 2017</li>
-  <li>A. Baranses, P.Y. Oudeyer - <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Active learning of inverse models with intrinsically motivated goal exploration in robots</a> - 2013</li>
-  <li>C. Reinke, M. Etcheverry, P.Y. Oudeyer - <a href="https://arxiv.org/abs/1908.06663">Intrinsically Motivated Discovery of Diverse Patterns in Self-Organizing Systems</a> - 2020</li>
+  <li>J. Lehman, Kenneth. Stanley- <a href="http://eplex.cs.ucf.edu/papers/lehman_ecj11.pdf">Abandoning Objectives: Evolution through the Search for Novelty Alone</a> - Evolutionary Computation 2011</li>
+  <li>A. Cully, Y. Demiris <a href="https://arxiv.org/abs/1708.09251">Quality and Diversity Optimization: A Unifying Modular Framework</a> - Evolutionary Computation 2017</li>
+  <li>A. Baranses, P.Y. Oudeyer - <a href="http://www.pyoudeyer.com/ActiveGoalExploration-RAS-2013.pdf">Active learning of inverse models with intrinsically motivated goal exploration in robots</a> - RAS 2013</li>
+  <li>C. Reinke, M. Etcheverry, P.Y. Oudeyer - <a href="https://arxiv.org/abs/1908.06663">Intrinsically Motivated Discovery of Diverse Patterns in Self-Organizing Systems</a> - ICLR 2020</li>
   <li>S. Forestier, R. Portelas, Y. Mollard, P.Y. Oudeyer - <a href="https://arxiv.org/abs/1708.02190">Intrinsically motivated goal exploration processes with automatic curriculum learning</a> - 2017</li>
-  <li>J. Grizou, L.J. Points, A. Sharma, L. Cronin - <a href="https://arxiv.org/abs/1708.02190">A curious formulation robot enables the discovery of a novel protocell behavior</a> - 2020</li>
+  <li>K. Stanley - <a href="http://eplex.cs.ucf.edu/papers/stanley_gpem07.pdf">Compositional Pattern Producing Networks: A Novel Abstraction of Development</a> - Genetic Programming and Evolvable Machines 2007</li>
+  <li>J. Grizou, L.J. Points, A. Sharma, L. Cronin - <a href="https://advances.sciencemag.org/content/6/5/eaay4237">A curious formulation robot enables the discovery of a novel protocell behavior</a> - Science Advances 2020</li>
 </ul>
 
 
