@@ -15,9 +15,10 @@
 3. Activate *autodisc* conda environment: `conda activate autodisc`
 4. If you do not already have it, please create a package folder that you will link to your conda env: `mkdir <path_to_packages_folder>`
 5. Into your package folder, clone the following packages:  
-    a. `git clone git@github.com:mayalenE/imagerepresentation.git`  
+    a. `git clone git@github.com:mayalenE/exputils.git`
     b. `git clone git@github.com:mayalenE/pytorchneat.git`   
-    c. `git clone git@github.com:mayalenE/evocraftsearch.git`
+    c. `git clone git@github.com:mayalenE/imagerepresentation.git`
+    d. `git clone git@github.com:mayalenE/evocraftsearch.git`
 5. Include thos packages in the conda environment:  
    `echo "<path_to_packages_folder>" > "$HOME/miniconda3/envs/autodisc/lib/python3.8/site-packages/my_packages.pth"`
 6. Install the required conda packages in the environment (*requirements.txt* file can be found in evocraftsearch directory):  
