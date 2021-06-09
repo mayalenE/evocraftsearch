@@ -19,7 +19,7 @@
     b. `git clone git@github.com:mayalenE/pytorchneat.git`   
     c. `git clone git@github.com:mayalenE/evocraftsearch.git`
 5. Include thos packages in the conda environment:  
-   `echo <path_to_packages_folder> "$HOME/miniconda3/envs/autodisc/lib/python3.6/site-packages/my_packages.pth"`
+   `echo "<path_to_packages_folder>" > "$HOME/miniconda3/envs/autodisc/lib/python3.8/site-packages/my_packages.pth"`
 6. Install the required conda packages in the environment (*requirements.txt* file can be found in evocraftsearch directory):  
    `while read requirement; do conda install --yes $requirement --channel default --channel anaconda --channel conda-forge --channel pytorch || pip install $requirement; done < requirements.txt`
 
