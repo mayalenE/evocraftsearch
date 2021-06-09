@@ -16,3 +16,5 @@ grpcio
 google-api-python-client
 pygifsicle
 h5py
+scikit-learn
+NBT
