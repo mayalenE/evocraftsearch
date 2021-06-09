@@ -18,3 +18,4 @@ pygifsicle
 h5py
 scikit-learn
 NBT
+odfpy
