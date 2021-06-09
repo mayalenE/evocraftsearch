@@ -34,26 +34,15 @@ The general structure of the code is inspired from [OpenAI's Gym](https://github
 The main classes (***System***, ***OutputRepresentation***, ***OutputFitness*** and ***Explorer***) are implemented in `core.py`.
 
 
-## addict.Dict
-
-Class which implements a dictionary that provides attribute-style access.  
-This class is used to implement configurations of all evocraftsearch classes, typically initialized in the
-class `__init__` function with:
-
-```
-self.config = self.__class__.default_config()
-self.config.update(config)
-self.config.update(kwargs)
-```
-
 ## evocraftsearch.spaces.Space
 
 Class used to define valid spaces for (i) input parameters of the Evocraft systems and (ii) IMGEP explorer goal space.
-Implemented space classes are: BoxSpace, DiscreteSpace, MultiDiscreteSpace and MultiBinarySpace.  
+Implemented space classes are: BoxSpace, DiscreteSpace, MultiDiscreteSpace, MultiBinarySpace and CppnSpace.  
 Implemented container classes are: TupleSpace anb DictSpace.  
 Most use-cases should be covered by those classes but custom Space can be defined and must implement the following API methods:
 * **sample**(self) - randomly sample an element of this space
 * **mutate**(self, x) - randomly mutate an element of this space
+* **crossover**(self, x1, x2) - randomly crossover two elements of this space
 * **contains**(self, x) - return boolean specifying if x is a valid
 * **clamp**(self, x) - return a valid clamped value of x inside space's bounds
 
@@ -86,7 +75,7 @@ The main system's attributes are:
 
 * **initialization_space** - DictSpace object corresponding to Evocraft initialisation genome's parameters
 * **update_rule_space** - DictSpace object corresponding to Evocraft update rule genome's parameters
-* **intervention_space** - DictSpace object corresponding to valid intervention parameters in Evocraft step() function
+* **intervention_space** - DictSpace object corresponding to valid intervention parameters in the step() function
 
 The main API methods that this class needs to implement are:
 
