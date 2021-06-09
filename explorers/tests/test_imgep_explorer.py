@@ -15,11 +15,11 @@ class TestIMGEPExplorer(TestCase):
         set_seed(0)
         torch.backends.cudnn.enabled = False
         ## Load System
-        cppn_potential_ca_config = LeniaChem.default_config()
-        cppn_potential_ca_config.SX = 32
-        cppn_potential_ca_config.SY = 32
-        cppn_potential_ca_config.SZ = 1
-        cppn_potential_ca_config.final_step = 100
+        leniachem_config = LeniaChem.default_config()
+        leniachem_config.SX = 32
+        leniachem_config.SY = 32
+        leniachem_config.SZ = 1
+        leniachem_config.final_step = 100
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                   neat.DefaultReproduction,
@@ -27,12 +27,12 @@ class TestIMGEPExplorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list),
+        initialization_space = LeniaChemInitializationSpace(len(leniachem_config.blocks_list),
                                                                   neat_config, occupation_ratio_range=[0.1, 0.2])
-        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), 1, neat_config,
+        update_rule_space = LeniaChemUpdateRuleSpace(len(leniachem_config.blocks_list), 1, neat_config,
                                                            RX_max=5, RY_max=5, RZ_max=1)
         system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
-                                 config=cppn_potential_ca_config, device='cuda')
+                                 config=leniachem_config, device='cuda')
 
 
         # Load ExplorationDB

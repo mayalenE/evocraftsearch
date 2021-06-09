@@ -16,11 +16,11 @@ class TestIMGEP_OGL_Explorer(TestCase):
         torch.backends.cudnn.enabled = False  # Somehow cudnn decrease performances in our case :O
 
         # Load System
-        cppn_potential_ca_config = LeniaChem.default_config()
-        cppn_potential_ca_config.SX = 16
-        cppn_potential_ca_config.SY = 16
-        cppn_potential_ca_config.SZ = 16
-        cppn_potential_ca_config.final_step = 40
+        leniachem_config = LeniaChem.default_config()
+        leniachem_config.SX = 16
+        leniachem_config.SY = 16
+        leniachem_config.SZ = 16
+        leniachem_config.final_step = 40
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                   neat.DefaultReproduction,
@@ -28,10 +28,10 @@ class TestIMGEP_OGL_Explorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        initialization_space = LeniaChemInitializationSpace(len(leniachem_config.blocks_list), neat_config)
+        update_rule_space = LeniaChemUpdateRuleSpace(len(leniachem_config.blocks_list), neat_config)
         system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
-                                 config=cppn_potential_ca_config, device='cuda')
+                                 config=leniachem_config, device='cuda')
 
         # Load ExplorationDB
         db_config = ExplorationDB.default_config()

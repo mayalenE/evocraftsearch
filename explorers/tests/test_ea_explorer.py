@@ -37,12 +37,12 @@ class TestEAExplorer(TestCase):
         target = torch.cat([air_one_hot.repeat(target.shape[0], target.shape[1], pad_z, 1), target], dim=2)
 
         # Load System
-        cppn_potential_ca_config = LeniaChem.default_config()
-        cppn_potential_ca_config.SX = SX
-        cppn_potential_ca_config.SY = SY
-        cppn_potential_ca_config.SZ = SZ
-        cppn_potential_ca_config.final_step = 20
-        cppn_potential_ca_config.blocks_list = block_list
+        leniachem_config = LeniaChem.default_config()
+        leniachem_config.SX = SX
+        leniachem_config.SY = SY
+        leniachem_config.SZ = SZ
+        leniachem_config.final_step = 20
+        leniachem_config.blocks_list = block_list
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                   neat.DefaultReproduction,
@@ -50,10 +50,10 @@ class TestEAExplorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        initialization_space = LeniaChemInitializationSpace(len(leniachem_config.blocks_list), neat_config)
+        update_rule_space = LeniaChemUpdateRuleSpace(len(leniachem_config.blocks_list), neat_config)
         system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
-                                 config=cppn_potential_ca_config, device='cuda')
+                                 config=leniachem_config, device='cuda')
         system.potential = target.unsqueeze(0)
         system.render()
 

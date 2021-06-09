@@ -25,7 +25,12 @@
 
 
 ## Step 2: Run the experiments
-[Coming soon!!]
+You can reproduce the experiments by going in the *examples* folder of the evocraftsearch repository and do:
+```buildoutcfg
+python run_experiment.py
+```
+You can change the experiment configuration by selecting one of the proposed configs (`experiment_config_64_2D_growth.py`, etc)
+or by changing the hyperparameters yourself in the config file.
 
 
 # EvocraftSearch: Code Skeleton
@@ -90,7 +95,8 @@ The main API methods that this class needs to implement are:
 Base class for the torch_nn system. Inherits from evocraftsearch.System and torch.nn.Module.  
 Aditionnally to System's main API methods, torch.nn.Module's main API methods are callable.
 
-
+### evocraftsearch.system.LeniaChem
+Class for the LeniaChem system (implemented as a differentiable torch module).
 
 ## evocraftsearch.OutputRepresentation 
 
