@@ -2,8 +2,8 @@ from unittest import TestCase
 import torch
 import neat
 import pytorchneat
-from evocraftsearch.systems import CppnPotentialCA
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAUpdateRuleSpace
+from evocraftsearch.systems import LeniaChem
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemUpdateRuleSpace
 from evocraftsearch import ExplorationDB
 from exputils.seeding import set_seed
 from image_representation import VAE
@@ -16,7 +16,7 @@ class TestIMGEP_OGL_Explorer(TestCase):
         torch.backends.cudnn.enabled = False  # Somehow cudnn decrease performances in our case :O
 
         # Load System
-        cppn_potential_ca_config = CppnPotentialCA.default_config()
+        cppn_potential_ca_config = LeniaChem.default_config()
         cppn_potential_ca_config.SX = 16
         cppn_potential_ca_config.SY = 16
         cppn_potential_ca_config.SZ = 16
@@ -28,9 +28,9 @@ class TestIMGEP_OGL_Explorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
+        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
 
         # Load ExplorationDB

@@ -3,14 +3,14 @@ import torch
 from exputils.seeding import set_seed
 import neat
 import pytorchneat
-from evocraftsearch.systems import CppnPotentialCA
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAInitialization
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAUpdateRuleSpace, CppnPotentialCAStep
+from evocraftsearch.systems import LeniaChem
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemInitialization
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChemUpdateRuleSpace, LeniaChemStep
 from math import floor
 import matplotlib.pyplot as plt
 
 
-class TestCppnPotentialCA(TestCase):
+class TestLeniaChem(TestCase):
 
     def test_initialisation(self):
         set_seed(0)
@@ -29,9 +29,9 @@ class TestCppnPotentialCA(TestCase):
                                   'template_neat_cppn.cfg'
                                   )
 
-        initialization_space = CppnPotentialCAInitializationSpace(n_channels, neat_config)
+        initialization_space = LeniaChemInitializationSpace(n_channels, neat_config)
         initialization_parameters = initialization_space.sample()
-        ca_init = CppnPotentialCAInitialization(initialization_parameters['I'], neat_config, max_potential=max_potential, device=device)
+        ca_init = LeniaChemInitialization(initialization_parameters['I'], neat_config, max_potential=max_potential, device=device)
 
         output_size = env_size + (n_channels, )
         output_img = torch.zeros(output_size, device=device)
@@ -60,12 +60,12 @@ class TestCppnPotentialCA(TestCase):
         set_seed(0)
         torch.backends.cudnn.enabled = False
         ## Load System
-        cppn_potential_ca_config = CppnPotentialCA.default_config()
-        cppn_potential_ca_config.SX = 16
-        cppn_potential_ca_config.SY = 16
-        cppn_potential_ca_config.SZ = 16
-        cppn_potential_ca_config.final_step = 4
-        # cppn_potential_ca_config.blocks_list = block_list
+        leniachem_config = LeniaChem.default_config()
+        leniachem_config.SX = 16
+        leniachem_config.SY = 16
+        leniachem_config.SZ = 16
+        leniachem_config.final_step = 4
+        # leniachem_config.blocks_list = block_list
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                   neat.DefaultReproduction,
@@ -73,11 +73,11 @@ class TestCppnPotentialCA(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        update_rule_space = LeniaChemUpdateRuleSpace(len(leniachem_config.blocks_list), neat_config)
 
         for creature_idx in range(10):
             update_rule_parameters = update_rule_space.sample()
-            ca_step = CppnPotentialCAStep(update_rule_parameters['T'], update_rule_parameters['K'], neat_config, is_soft_clip=False, device='cuda')
+            ca_step = LeniaChemStep(update_rule_parameters['T'], update_rule_parameters['K'], neat_config, is_soft_clip=False, device='cuda')
             ca_step.reset_kernels()
             for str_key, K in ca_step.K.named_children():
                 print(str_key)
@@ -89,7 +89,7 @@ class TestCppnPotentialCA(TestCase):
 
 
 
-    def test_cppn_potential_ca(self):
+    def test_leniachem(self):
         # import grpc
         # from evocraftsearch.evocraft import minecraft_pb2_grpc
         # channel = grpc.insecure_channel('localhost:5001') #WORLD ORIGIN: (0,4,0)
@@ -98,12 +98,12 @@ class TestCppnPotentialCA(TestCase):
         set_seed(0)
         torch.backends.cudnn.enabled = False
         ## Load System
-        cppn_potential_ca_config = CppnPotentialCA.default_config()
-        cppn_potential_ca_config.SX = 32
-        cppn_potential_ca_config.SY = 32
-        cppn_potential_ca_config.SZ = 1
-        cppn_potential_ca_config.final_step = 100
-        #cppn_potential_ca_config.blocks_list = block_list
+        leniachem_config = LeniaChem.default_config()
+        leniachem_config.SX = 32
+        leniachem_config.SY = 32
+        leniachem_config.SZ = 1
+        leniachem_config.final_step = 100
+        #leniachem_config.blocks_list = block_list
 
         neat_config = neat.Config(pytorchneat.selfconnectiongenome.SelfConnectionGenome,
                                                               neat.DefaultReproduction,
@@ -111,9 +111,9 @@ class TestCppnPotentialCA(TestCase):
                                                               neat.DefaultStagnation,
                                                               'template_neat_cppn.cfg'
                                                               )
-        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config, occupation_ratio_range=[0.1,0.2])
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), 1, neat_config, RX_max=5, RY_max=5, RZ_max=5)
-        system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space, config=cppn_potential_ca_config, device='cuda')
+        initialization_space = LeniaChemInitializationSpace(len(leniachem_config.blocks_list), neat_config, occupation_ratio_range=[0.1,0.2])
+        update_rule_space = LeniaChemUpdateRuleSpace(len(leniachem_config.blocks_list), 1, neat_config, RX_max=5, RY_max=5, RZ_max=1)
+        system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space, config=leniachem_config, device='cuda')
         for creature_idx in range(100):
             if creature_idx % 2 == 0:
                 base_policy_parameters = system.sample_policy_parameters()

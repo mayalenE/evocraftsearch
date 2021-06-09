@@ -1,3 +1,3 @@
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCA
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChem
 
-__all__ = ["CppnPotentialCA"]
+__all__ = ["LeniaChem"]

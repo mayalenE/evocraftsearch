@@ -1,8 +1,8 @@
 from unittest import TestCase
 import neat
 import pytorchneat
-from evocraftsearch.systems import CppnPotentialCA
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAUpdateRuleSpace
+from evocraftsearch.systems import LeniaChem
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemUpdateRuleSpace
 from evocraftsearch.output_fitness.torch_nn.reconstruction import ReconstructionFitness
 from evocraftsearch import ExplorationDB
 from evocraftsearch.evocraft.utils import load_target
@@ -37,7 +37,7 @@ class TestEAExplorer(TestCase):
         target = torch.cat([air_one_hot.repeat(target.shape[0], target.shape[1], pad_z, 1), target], dim=2)
 
         # Load System
-        cppn_potential_ca_config = CppnPotentialCA.default_config()
+        cppn_potential_ca_config = LeniaChem.default_config()
         cppn_potential_ca_config.SX = SX
         cppn_potential_ca_config.SY = SY
         cppn_potential_ca_config.SZ = SZ
@@ -50,9 +50,9 @@ class TestEAExplorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
-        system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
+        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), neat_config)
+        system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
         system.potential = target.unsqueeze(0)
         system.render()

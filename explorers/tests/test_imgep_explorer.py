@@ -2,8 +2,8 @@ from unittest import TestCase
 import torch
 import neat
 import pytorchneat
-from evocraftsearch.systems import CppnPotentialCA
-from evocraftsearch.systems.torch_nn.cppn_potential_CA import CppnPotentialCAInitializationSpace, CppnPotentialCAUpdateRuleSpace
+from evocraftsearch.systems import LeniaChem
+from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemUpdateRuleSpace
 from evocraftsearch.output_representation import ImageStatisticsRepresentation
 from evocraftsearch import ExplorationDB
 from evocraftsearch.explorers import IMGEPExplorer, BoxGoalSpace
@@ -15,7 +15,7 @@ class TestIMGEPExplorer(TestCase):
         set_seed(0)
         torch.backends.cudnn.enabled = False
         ## Load System
-        cppn_potential_ca_config = CppnPotentialCA.default_config()
+        cppn_potential_ca_config = LeniaChem.default_config()
         cppn_potential_ca_config.SX = 32
         cppn_potential_ca_config.SY = 32
         cppn_potential_ca_config.SZ = 1
@@ -27,11 +27,11 @@ class TestIMGEPExplorer(TestCase):
                                   neat.DefaultStagnation,
                                   'template_neat_cppn.cfg'
                                   )
-        initialization_space = CppnPotentialCAInitializationSpace(len(cppn_potential_ca_config.blocks_list),
+        initialization_space = LeniaChemInitializationSpace(len(cppn_potential_ca_config.blocks_list),
                                                                   neat_config, occupation_ratio_range=[0.1, 0.2])
-        update_rule_space = CppnPotentialCAUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), 1, neat_config,
+        update_rule_space = LeniaChemUpdateRuleSpace(len(cppn_potential_ca_config.blocks_list), 1, neat_config,
                                                            RX_max=5, RY_max=5, RZ_max=1)
-        system = CppnPotentialCA(initialization_space=initialization_space, update_rule_space=update_rule_space,
+        system = LeniaChem(initialization_space=initialization_space, update_rule_space=update_rule_space,
                                  config=cppn_potential_ca_config, device='cuda')
 
 

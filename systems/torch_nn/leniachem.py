@@ -6,7 +6,7 @@ from evocraftsearch.utils.torch_utils import SphericPad
 from evocraftsearch.spaces import Space, BoxSpace, DiscreteSpace, DictSpace, BiasedMultiBinarySpace, CPPNSpace
 from evocraftsearch.evocraft.utils import get_minecraft_color_list
 import pytorchneat
-from math import floor, cos, sin, pi, ceil, log, factorial
+from math import floor, cos, sin, pi, ceil, log
 from copy import deepcopy
 import warnings
 #import open3d as o3d
@@ -28,7 +28,7 @@ from evocraftsearch.evocraft.minecraft_pb2 import *
 Initialization Space: 
 ============================================================================================= """
 
-class CppnPotentialCAInitializationSpace(DictSpace):
+class LeniaChemInitializationSpace(DictSpace):
 
     @staticmethod
     def default_config():
@@ -130,7 +130,7 @@ class CppnPotentialCAInitializationSpace(DictSpace):
 Update Rule Space: 
 ============================================================================================= """
 
-class CppnPotentialCAUpdateRuleSpace(Space):
+class LeniaChemUpdateRuleSpace(Space):
 
     @staticmethod
     def default_config():
@@ -321,11 +321,11 @@ class CppnPotentialCAUpdateRuleSpace(Space):
 
 
 """ =============================================================================================
-CppnPotentialCA Main
+LeniaChem Main
 ============================================================================================= """
-# CppnPotentialCA Initialization
-class CppnPotentialCAInitialization(torch.nn.Module):
-    """ Module pytorch that computes one CppnPotentialCA Initialization """
+# LeniaChem Initialization
+class LeniaChemInitialization(torch.nn.Module):
+    """ Module pytorch that computes one LeniaChem Initialization """
 
     def __init__(self, I, cppn_config, cppn_n_passes=3, max_potential=1.0, device='cpu'):
         torch.nn.Module.__init__(self)
@@ -363,9 +363,9 @@ class CppnPotentialCAInitialization(torch.nn.Module):
         return output_img
 
 
-# CppnPotentialCA Step
-class CppnPotentialCAStep(torch.nn.Module):
-    """ Module pytorch that computes one CppnPotentialCA Step """
+# LeniaChem Step
+class LeniaChemStep(torch.nn.Module):
+    """ Module pytorch that computes one LeniaChem Step """
 
     def __init__(self, T, K, cppn_config, cppn_n_passes=3, max_potential=1.0, update_rate=1.0, update_clip="hard", device='cpu'):
         torch.nn.Module.__init__(self)
@@ -453,7 +453,7 @@ class CppnPotentialCAStep(torch.nn.Module):
 
 
 
-class CppnPotentialCA(System, torch.nn.Module):
+class LeniaChem(System, torch.nn.Module):
 
     @staticmethod
     def default_config():
@@ -515,12 +515,12 @@ class CppnPotentialCA(System, torch.nn.Module):
         self.initialization_parameters = policy['initialization']
         self.update_rule_parameters = policy['update_rule']
 
-        # initialize CppnPotentialCA initial potential with initialization_parameters
-        ca_init = CppnPotentialCAInitialization(self.initialization_parameters['I'], self.initialization_space.neat_config, max_potential=self.config.max_potential, device=self.device)
+        # initialize LeniaChem initial potential with initialization_parameters
+        ca_init = LeniaChemInitialization(self.initialization_parameters['I'], self.initialization_space.neat_config, max_potential=self.config.max_potential, device=self.device)
         self.add_module('ca_init', ca_init)
 
-        # initialize CppnPotentialCA CA step with update rule parameters
-        ca_step = CppnPotentialCAStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.neat_config,
+        # initialize LeniaChem CA step with update rule parameters
+        ca_step = LeniaChemStep(self.update_rule_parameters['T'], self.update_rule_parameters['K'], self.update_rule_space.neat_config,
                                       max_potential=self.config.max_potential, update_rate=self.config.update_rate, update_clip=self.config.update_clip, device=self.device)
         self.add_module('ca_step', ca_step)
 

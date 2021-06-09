@@ -21,8 +21,7 @@
 5. Include thos packages in the conda environment:  
    `echo <path_to_packages_folder> "$HOME/miniconda3/envs/autodisc/lib/python3.6/site-packages/my_packages.pth"`
 6. Install the required conda packages in the environment (*requirements.txt* file can be found in evocraftsearch directory):  
-   `while read requirement; do conda install --yes $requirement --channel default --channel anaconda --channel conda-forge --channel pytorch; done < requirements.txt`
-    
+   `while read requirement; do conda install --yes $requirement --channel default --channel anaconda --channel conda-forge --channel pytorch || pip install $requirement; done < requirements.txt`
 
 
 ## Step 2: Run the experiments
