@@ -5,7 +5,7 @@ import torch
 from evocraftsearch import ExplorationDB
 from evocraftsearch.systems import LeniaChem
 from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemUpdateRuleSpace
-from image_representation import VAE, MEVAE, HOLMES_VAE
+from image_representation import VAE, HOLMES_VAE
 from evocraftsearch.output_representation import ImageStatisticsRepresentation, HistogramBlocksRepresentation
 from evocraftsearch.explorers import IMGEPExplorer, BoxGoalSpace, IMGEP_OGL_Explorer, TorchNNBoxGoalSpace, IMGEP_HOLMES_Explorer, HolmesGoalSpace
 from image_representation.datasets.preprocess import TensorRandomCentroidCrop, TensorRandomRoll, TensorRandomFlip, TensorRandomSphericalRotation

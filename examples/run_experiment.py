@@ -1,7 +1,7 @@
 from evocraftsearch import ExplorationDB
 from evocraftsearch.systems import LeniaChem
 from evocraftsearch.systems.torch_nn.leniachem import LeniaChemInitializationSpace, LeniaChemUpdateRuleSpace
-from image_representation import VAE, MEVAE
+from image_representation import VAE
 from evocraftsearch.output_representation import ImageStatisticsRepresentation
 from evocraftsearch.explorers import IMGEPExplorer, BoxGoalSpace, IMGEP_OGL_Explorer, TorchNNBoxGoalSpace
 from evocraftsearch.output_fitness.displacement import DisplacementFitness
