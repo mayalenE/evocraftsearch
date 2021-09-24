@@ -311,13 +311,13 @@ empty every location which maximum potential is lower than 0.1, by setting every
 </ol>
 
 <div style="display: flex; justify-content: space-between;">
-<iframe src="https://www.youtube.com/embed/ud0qGJLp6Bs?start=51&amp;end=120&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;loop=1&amp;playlist=ud0qGJLp6Bs?start=51&amp;end=120" frameborder="0" style="width: 240px; height: 150px;"></iframe>
-<iframe src="https://www.youtube.com/embed/70tZnYveUqs?start=8&amp;end=30&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;loop=1&amp;playlist=70tZnYveUqs?start=8&amp;end=30" frameborder="0" style="width: 240px; height: 150px;"></iframe>
-<iframe src="https://www.youtube.com/embed/hlGO-1B93SM?start=7&amp;end=35&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=hlGO-1B93SM?start=71&amp;end=35" frameborder="0" style="width: 240px; height: 150px;"></iframe>
-<iframe src="https://www.youtube.com/embed/FYLY8ee87B0?start=14&amp;end=100&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=FYLY8ee87B0?start=14&amp;end=100&amp;" frameborder="0" style="width: 240px; height: 150px;"></iframe>
-<iframe src="https://www.youtube.com/embed/bGug-NXRskY?start=1&amp;end=144&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0&amp;playlist=bGug-NXRskY?start=1&amp;end=144" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/ud0qGJLp6Bs?start=51&amp;end=120&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/70tZnYveUqs?start=8&amp;end=30&amp;autoplay=1&amp;autopause=0&amp;mute=1&amp;controls=0" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/hlGO-1B93SM?start=7&amp;end=35&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/FYLY8ee87B0?start=14&amp;end=100&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0" frameborder="0" style="width: 240px; height: 150px;"></iframe>
+<iframe src="https://www.youtube.com/embed/bGug-NXRskY?start=1&amp;end=144&amp;autoplay=1&amp;loop=1&amp;autopause=0&amp;mute=1&amp;controls=0" frameborder="0" style="width: 240px; height: 150px;"></iframe>
 </div>
-<p><em>Examples of chemical reactions from the <a href="https://www.youtube.com/c/chemicalbouillon">chemical bouillon</a> youtube channel.</em></p>
+<p><em>Example of chemical reactions from the <a href="https://www.youtube.com/c/chemicalbouillon">chemical bouillon</a> youtube channel.</em></p>
 <div style="display: flex; justify-content: space-between;">
 <img src="assets/media/LeniaChem/run_913_rollout.gif" style="width: 240px; height: auto;" />
 <img src="assets/media/LeniaChem/run_2236_rollout.gif" style="width: 240px; height: auto;" />
@@ -325,7 +325,7 @@ empty every location which maximum potential is lower than 0.1, by setting every
 <img src="assets/media/LeniaChem/run_2670_rollout.gif" style="width: 240px; height: auto;" />
 <img src="assets/media/LeniaChem/run_884_rollout.gif" style="width: 240px; height: auto;" />
 </div>
-<p><em>Examples of artifact-growth in the LeniaChem system.</em></p>
+<p><em>Example of artifact-growth in the LeniaChem system.</em></p>
 
 <p>Back to the <em>desirata</em> properties of our artifact-generator, LeniaChem is a <em>dynamical</em> system that shows <em>growth</em>, <em>local interactions</em> and <em>non-linearity</em>.
 LeniaChem is not <em>open</em> in a strictly-speaking sense but we do not impose any sort of mass-conservation law. Similarly, we do not explicitly implement <em>memory</em> in the CA but any value can be stored in the continuous channel.</p>
@@ -348,7 +348,7 @@ to characterize the different discovered niches of pattern. The architecture has
 (iv) a <em>connection-scheme</em> that allows feature-wise transfer from a parent module to its children</p>
 
 <p>In HOLMES, the clustering of the different patterns and the use of learnable connections is central to explore <strong>divergent search spaces</strong> and to <strong>aggregate the knowledge</strong> between the distributed modules. 
-While HOLMES architecture is general, the engineer’s choice for the module/connections training strategy and for the clustering algorithm 
+While HOLMES architecture is very general, the engineer’s choice for the module/connections training strategy and for the clustering algorithm 
 will impact how patterns are separated and distributed into different niches, which will in turn greatly influence their “selectivity” by the population-based IMGEP.</p>
 
 <p>Here, we use the same implementation choices that in <a href="https://arxiv.org/pdf/2007.01195.pdf">Etcheverry et al. 2020</a>:<br />
